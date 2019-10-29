@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <utility>
 
+// #include <vtkAppendPolyData.h>
 #include <vtkCamera.h>
 #include <vtkCubeSource.h>
 #include <vtkCylinderSource.h>
@@ -17,8 +18,6 @@
 #include <vtkPlaneSource.h>
 #include <vtkProperty.h>
 #include <vtkSphereSource.h>
-#include <vtkTransform.h>
-#include <vtkTransformPolyDataFilter.h>
 
 #include "drake/common/text_logging.h"
 #include "drake/systems/sensors/color_palette.h"
@@ -39,53 +38,13 @@ using systems::sensors::ImageLabel16I;
 using systems::sensors::ImageRgba8U;
 using systems::sensors::vtk_util::ConvertToVtkTransform;
 using systems::sensors::vtk_util::CreateSquarePlane;
-
-namespace {
-
-void SetModelTransformMatrixToVtkCamera(
-    vtkCamera* camera, const vtkSmartPointer<vtkTransform>& X_WC) {
-  // vtkCamera contains a transformation as the internal state and
-  // ApplyTransform multiplies a given transformation on top of the internal
-  // transformation. Thus, resetting 'Set{Position, FocalPoint, ViewUp}' is
-  // needed here.
-  camera->SetPosition(0., 0., 0.);
-  // Sets z-forward.
-  camera->SetFocalPoint(0., 0., 1.);
-  // Sets y-down. For the detail, please refer to CameraInfo's document.
-  camera->SetViewUp(0., -1, 0.);
-  camera->ApplyTransform(X_WC);
-}
-
-// Note: the kLabel and kDepth values are not currently used. They are left in
-// place for when this renderer can produce depth and label images.
-enum ImageType {
-  kColor = 0,
-  kLabel = 1,
-  kDepth = 2,
-};
-
-// TODO(SeanCurtis-TRI): Add X_PG pose to this data.
-// A package of data required to register a visual geometry.
-struct RegistrationData {
-  const PerceptionProperties& properties;
-  const RigidTransformd& X_FG;
-  const GeometryId id;
-  // The file name if the shape being registered is a mesh.
-  optional<std::string> mesh_filename;
-};
-
-std::string RemoveFileExtension(const std::string& filepath) {
-  const size_t last_dot = filepath.find_last_of(".");
-  if (last_dot == std::string::npos) {
-    throw std::logic_error("File has no extension.");
-  }
-  return filepath.substr(0, last_dot);
-}
-
-}  // namespace
+using vtk_base::ImageType;
+using vtk_base::RegistrationData;
+using vtk_base::RemoveFileExtension;
+using vtk_base::SetModelTransformMatrixToVtkCamera;
 
 RenderEngineOspray::RenderEngineOspray(const RenderEngineOsprayParams& params)
-    : RenderEngine(RenderLabel::kUnspecified),
+    : RenderEngineVtkBase(RenderLabel::kUnspecified),
       pipelines_{{make_unique<RenderingPipeline>()}},
       render_mode_(params.mode) {
   if (params.default_diffuse) {
@@ -98,15 +57,6 @@ RenderEngineOspray::RenderEngineOspray(const RenderEngineOsprayParams& params)
   }
 
   InitializePipelines(params.samples_per_pixel);
-}
-
-void RenderEngineOspray::UpdateViewpoint(const RigidTransformd& X_WC) {
-  vtkSmartPointer<vtkTransform> vtk_X_WC = ConvertToVtkTransform(X_WC);
-
-  for (const auto& pipeline : pipelines_) {
-    auto camera = pipeline->renderer->GetActiveCamera();
-    SetModelTransformMatrixToVtkCamera(camera, vtk_X_WC);
-  }
 }
 
 void RenderEngineOspray::RenderColorImage(const CameraProperties& camera,
@@ -167,81 +117,6 @@ void RenderEngineOspray::RenderLabelImage(const CameraProperties&, bool,
   throw std::runtime_error("RenderEngineOspray does not support label images");
 }
 
-void RenderEngineOspray::ImplementGeometry(const Sphere& sphere,
-                                           void* user_data) {
-  // TODO(SeanCurtis-TRI): OSPRay supports a primitive sphere; find some way to
-  //  exercise *that* instead of needlessly tessellating.
-  vtkNew<vtkSphereSource> vtk_sphere;
-  vtk_sphere->SetRadius(sphere.get_radius());
-  // TODO(SeanCurtis-TRI): Provide control for smoothness/tessellation.
-  vtk_sphere->SetThetaResolution(50);
-  vtk_sphere->SetPhiResolution(50);
-  ImplementGeometry(vtk_sphere.GetPointer(), user_data);
-}
-
-void RenderEngineOspray::ImplementGeometry(const Cylinder& cylinder,
-                                           void* user_data) {
-  // TODO(SeanCurtis-TRI): OSPRay supports a primitive cylinder; find some way
-  //  to exercise *that* instead of needlessly tessellating.
-  vtkNew<vtkCylinderSource> vtk_cylinder;
-  vtk_cylinder->SetHeight(cylinder.get_length());
-  vtk_cylinder->SetRadius(cylinder.get_radius());
-  // TODO(SeanCurtis-TRI): Provide control for smoothness/tessellation.
-  vtk_cylinder->SetResolution(50);
-
-  // Since the cylinder in vtkCylinderSource is y-axis aligned, we need
-  // to rotate it to be z-axis aligned because that is what Drake uses.
-  vtkNew<vtkTransform> transform;
-  transform->RotateX(90);
-  vtkNew<vtkTransformPolyDataFilter> transform_filter;
-  transform_filter->SetInputConnection(vtk_cylinder->GetOutputPort());
-  transform_filter->SetTransform(transform.GetPointer());
-  transform_filter->Update();
-
-  ImplementGeometry(transform_filter.GetPointer(), user_data);
-}
-
-void RenderEngineOspray::ImplementGeometry(const HalfSpace&, void* user_data) {
-  // TODO(SeanCurtis-TRI): Allow this to be configured upon construction.
-  const double kTerrainSize = 100.;
-  vtkSmartPointer<vtkPlaneSource> vtk_plane = CreateSquarePlane(kTerrainSize);
-
-  ImplementGeometry(vtk_plane.GetPointer(), user_data);
-}
-
-void RenderEngineOspray::ImplementGeometry(const Box& box, void* user_data) {
-  vtkNew<vtkCubeSource> cube;
-  cube->SetXLength(box.width());
-  cube->SetYLength(box.depth());
-  cube->SetZLength(box.height());
-  ImplementGeometry(cube.GetPointer(), user_data);
-}
-
-void RenderEngineOspray::ImplementGeometry(const Capsule&, void*) {
-  // TODO(tehbelinda - #10153): Add capsule support.
-  static const logging::Warn log_once(
-      "Ospray does not support capsules yet; they will not appear in the "
-      "rendering.");
-}
-
-void RenderEngineOspray::ImplementGeometry(const Mesh& mesh, void* user_data) {
-  ImplementObj(mesh.filename(), mesh.scale(), user_data);
-}
-
-void RenderEngineOspray::ImplementGeometry(const Convex& convex,
-                                           void* user_data) {
-  ImplementObj(convex.filename(), convex.scale(), user_data);
-}
-
-bool RenderEngineOspray::DoRegisterVisual(
-    GeometryId id, const Shape& shape, const PerceptionProperties& properties,
-    const RigidTransformd& X_FG) {
-  // Note: the user_data interface on reification requires a non-const pointer.
-  RegistrationData data{properties, X_FG, id};
-  shape.Reify(this, &data);
-  return true;
-}
-
 RenderEngineOsprayParams RenderEngineOspray::get_params() const {
   const int samples_per_pixel = vtkOSPRayRendererNode::GetSamplesPerPixel(
       pipelines_[ImageType::kColor]->renderer);
@@ -249,32 +124,6 @@ RenderEngineOsprayParams RenderEngineOspray::get_params() const {
       render_mode_, default_diffuse_,
       Vector3d{background_color_.r, background_color_.g, background_color_.b},
       samples_per_pixel};
-}
-
-void RenderEngineOspray::DoUpdateVisualPose(GeometryId id,
-                                            const RigidTransformd& X_WG) {
-  vtkSmartPointer<vtkTransform> vtk_X_WG = ConvertToVtkTransform(X_WG);
-  // TODO(SeanCurtis-TRI): Perhaps provide the ability to specify actors for
-  //  specific pipelines; i.e. only update the color actor or only the label
-  //  actor, etc.
-  for (const auto& actor : actors_.at(id)) {
-    actor->SetUserTransform(vtk_X_WG);
-  }
-}
-
-bool RenderEngineOspray::DoRemoveGeometry(GeometryId id) {
-  auto iter = actors_.find(id);
-
-  if (iter == actors_.end()) return false;
-
-  std::array<vtkSmartPointer<vtkActor>, kNumPipelines>& pipe_actors =
-      iter->second;
-  for (int i = 0; i < kNumPipelines; ++i) {
-    // If the label actor hasn't been added to its renderer, this is a no-op.
-    pipelines_[i]->renderer->RemoveActor(pipe_actors[i]);
-  }
-  actors_.erase(iter);
-  return true;
 }
 
 std::unique_ptr<RenderEngine> RenderEngineOspray::DoClone() const {
@@ -286,7 +135,7 @@ std::unique_ptr<RenderEngine> RenderEngineOspray::DoClone() const {
 // cloning. This code should simply be rolled into DoClone(). (See the TODO
 // in the header file.)
 RenderEngineOspray::RenderEngineOspray(const RenderEngineOspray& other)
-    : RenderEngine(other),
+    : RenderEngineVtkBase(other),
       pipelines_{{make_unique<RenderingPipeline>()}},
       default_diffuse_{other.default_diffuse_},
       background_color_{other.background_color_},
@@ -416,25 +265,6 @@ void RenderEngineOspray::InitializePipelines(int samples_per_pixel) {
   }
 }
 
-void RenderEngineOspray::ImplementObj(const std::string& file_name,
-                                      double scale, void* user_data) {
-  static_cast<RegistrationData*>(user_data)->mesh_filename = file_name;
-  vtkNew<vtkOBJReader> mesh_reader;
-  mesh_reader->SetFileName(file_name.c_str());
-  mesh_reader->Update();
-
-  vtkNew<vtkTransform> transform;
-  // TODO(SeanCurtis-TRI): Should I be allowing only isotropic scale.
-  // TODO(SeanCurtis-TRI): Only add the transform filter if scale is not all 1.
-  transform->Scale(scale, scale, scale);
-  vtkNew<vtkTransformPolyDataFilter> transform_filter;
-  transform_filter->SetInputConnection(mesh_reader->GetOutputPort());
-  transform_filter->SetTransform(transform.GetPointer());
-  transform_filter->Update();
-
-  ImplementGeometry(transform_filter.GetPointer(), user_data);
-}
-
 void RenderEngineOspray::ImplementGeometry(vtkPolyDataAlgorithm* source,
                                            void* user_data) {
   DRAKE_DEMAND(user_data != nullptr);
@@ -483,9 +313,8 @@ void RenderEngineOspray::ImplementGeometry(vtkPolyDataAlgorithm* source,
     texture_name = diffuse_map_name;
   } else if (diffuse_map_name.empty() && data.mesh_filename) {
     // This is the hack to search for mesh.png as a possible texture.
-    const std::string
-    alt_texture_name(RemoveFileExtension(*data.mesh_filename) +
-        ".png");
+    const std::string alt_texture_name(
+        RemoveFileExtension(*data.mesh_filename) + ".png");
     std::ifstream alt_file_exist(alt_texture_name);
     if (alt_file_exist) texture_name = alt_texture_name;
   }
@@ -509,27 +338,6 @@ void RenderEngineOspray::ImplementGeometry(vtkPolyDataAlgorithm* source,
 
   // Take ownership of the actors.
   actors_.insert({data.id, std::move(actors)});
-}
-
-void RenderEngineOspray::PerformVtkUpdate(const RenderingPipeline& p) {
-  p.window->Render();
-  // See the note in the VTK documentation about explicitly calling Modified
-  // on the filter:
-  // https://vtk.org/doc/nightly/html/classvtkWindowToImageFilter.html#details
-  p.filter->Modified();
-  p.filter->Update();
-}
-
-void RenderEngineOspray::UpdateWindow(const CameraProperties& camera,
-                                      bool show_window,
-                                      const RenderingPipeline* p,
-                                      const char* name) const {
-  // NOTE: This is a horrible hack for modifying what otherwise looks like
-  // const entities.
-  p->window->SetSize(camera.width, camera.height);
-  p->window->SetOffScreenRendering(!show_window);
-  if (show_window) p->window->SetWindowName(name);
-  p->renderer->GetActiveCamera()->SetViewAngle(camera.fov_y * 180 / M_PI);
 }
 
 }  // namespace render

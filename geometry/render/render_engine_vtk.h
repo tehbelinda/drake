@@ -19,15 +19,9 @@
 #include <vtkWindowToImageFilter.h>
 
 #include "drake/common/drake_copyable.h"
-#include "drake/geometry/render/render_engine.h"
+#include "drake/geometry/render/render_engine_vtk_base.h"
 #include "drake/geometry/render/render_engine_vtk_factory.h"
 #include "drake/geometry/render/render_label.h"
-
-#ifndef DRAKE_DOXYGEN_CXX
-// This, and the ModuleInitVtkRenderingOpenGL2, provide the basis for enabling
-// VTK's OpenGL2 infrastructure.
-VTK_AUTOINIT_DECLARE(vtkRenderingOpenGL2)
-#endif
 
 namespace drake {
 namespace geometry {
@@ -35,11 +29,6 @@ namespace render {
 
 #ifndef DRAKE_DOXYGEN_CXX
 namespace internal {
-struct ModuleInitVtkRenderingOpenGL2 {
-  ModuleInitVtkRenderingOpenGL2(){
-    VTK_AUTOINIT_CONSTRUCT(vtkRenderingOpenGL2)
-  }
-};
 
 // A callback class for setting uniform variables used in shader programs,
 // namely z_near and z_far, when vtkCommand::UpdateShaderEvent is caught.
@@ -80,8 +69,7 @@ class ShaderCallback : public vtkCommand {
 #endif  // !DRAKE_DOXYGEN_CXX
 
 /** See documentation of MakeRenderEngineVtk().  */
-class RenderEngineVtk final : public RenderEngine,
-                              private internal::ModuleInitVtkRenderingOpenGL2 {
+class RenderEngineVtk final : public RenderEngineVtkBase {
  public:
   /** \name Does not allow copy, move, or assignment  */
   //@{
@@ -103,9 +91,6 @@ class RenderEngineVtk final : public RenderEngine,
   RenderEngineVtk(
       const RenderEngineVtkParams& parameters = RenderEngineVtkParams());
 
-  /** @see RenderEngine::UpdateViewpoint().  */
-  void UpdateViewpoint(const math::RigidTransformd& X_WR) final;
-
   /** @see RenderEngine::RenderColorImage().  */
   void RenderColorImage(
       const CameraProperties& camera, bool show_window,
@@ -121,17 +106,6 @@ class RenderEngineVtk final : public RenderEngine,
       const CameraProperties& camera, bool show_window,
       systems::sensors::ImageLabel16I* label_image_out) const final;
 
-  /** @name    Shape reification  */
-  //@{
-  void ImplementGeometry(const Sphere& sphere, void* user_data) final;
-  void ImplementGeometry(const Cylinder& cylinder, void* user_data) final;
-  void ImplementGeometry(const HalfSpace& half_space, void* user_data) final;
-  void ImplementGeometry(const Box& box, void* user_data) final;
-  void ImplementGeometry(const Capsule& capsule, void* user_data) final;
-  void ImplementGeometry(const Mesh& mesh, void* user_data) final;
-  void ImplementGeometry(const Convex& convex, void* user_data) final;
-  //@}
-
   /** @name    Access the default properties
 
    Provides access to the default values this instance of the render engine is
@@ -140,23 +114,9 @@ class RenderEngineVtk final : public RenderEngine,
 
   const Eigen::Vector4d& default_diffuse() const { return default_diffuse_; }
 
-  using RenderEngine::default_render_label;
-
   //@}
 
  private:
-  // @see RenderEngine::DoRegisterVisual().
-  bool DoRegisterVisual(
-      GeometryId id, const Shape& shape, const PerceptionProperties& properties,
-      const math::RigidTransformd& X_WG) final;
-
-  // @see RenderEngine::DoUpdateVisualPose().
-  void DoUpdateVisualPose(GeometryId id,
-                          const math::RigidTransformd& X_WG) final;
-
-  // @see RenderEngine::DoRemoveGeometry().
-  bool DoRemoveGeometry(GeometryId id) final;
-
   // @see RenderEngine::DoClone().
   std::unique_ptr<RenderEngine> DoClone() const final;
 
@@ -166,32 +126,11 @@ class RenderEngineVtk final : public RenderEngine,
   // Initializes the VTK pipelines.
   void InitializePipelines();
 
-  // Common interface for loading an obj file -- used for both mesh and convex
-  // shapes.
-  void ImplementObj(const std::string& file_name, double scale,
-                    void* user_data);
+  using ShapeReifier::ImplementGeometry;
+  void ImplementGeometry(vtkPolyDataAlgorithm* source,
+                         void* user_data) override;
 
-  // Performs the common setup for all shape types.
-  void ImplementGeometry(vtkPolyDataAlgorithm* source, void* user_data);
-
-  // The rendering pipeline for a single image type (color, depth, or label).
-  struct RenderingPipeline {
-    vtkNew<vtkRenderer> renderer;
-    vtkNew<vtkRenderWindow> window;
-    vtkNew<vtkWindowToImageFilter> filter;
-    vtkNew<vtkImageExport> exporter;
-  };
-
-  // Updates VTK rendering related objects including vtkRenderWindow,
-  // vtkWindowToImageFilter and vtkImageExporter, so that VTK reflects
-  // vtkActors' pose update for rendering.
-  static void PerformVtkUpdate(const RenderingPipeline& p);
-
-  // This actually modifies internal state; the pointer to a const pipeline
-  // allows mutation via the contained vtkNew pointers.
-  void UpdateWindow(const CameraProperties& camera, bool show_window,
-                    const RenderingPipeline* p, const char* name) const;
-
+  using RenderEngineVtkBase::UpdateWindow;
   // Modifies the camera for the special case of the depth camera.
   void UpdateWindow(const DepthCameraProperties& camera,
                     const RenderingPipeline* p) const;
@@ -225,7 +164,8 @@ class RenderEngineVtk final : public RenderEngine,
 
   // The collection of per-geometry actors (one actor per pipeline (color,
   // depth, and label) keyed by the geometry's GeometryId.
-  std::unordered_map<GeometryId, std::array<vtkSmartPointer<vtkActor>, 3>>
+  std::unordered_map<GeometryId,
+                     std::array<vtkSmartPointer<vtkActor>, kNumPipelines>>
       actors_;
 };
 

@@ -14,8 +14,6 @@
 #include <vtkPlaneSource.h>
 #include <vtkProperty.h>
 #include <vtkSphereSource.h>
-#include <vtkTransform.h>
-#include <vtkTransformPolyDataFilter.h>
 
 #include "drake/common/text_logging.h"
 #include "drake/geometry/render/shaders/depth_shaders.h"
@@ -27,8 +25,8 @@ namespace geometry {
 namespace render {
 
 using Eigen::Vector4d;
-using std::make_unique;
 using math::RigidTransformd;
+using std::make_unique;
 using systems::sensors::ColorD;
 using systems::sensors::ColorI;
 using systems::sensors::ImageDepth32F;
@@ -38,6 +36,10 @@ using systems::sensors::InvalidDepth;
 using systems::sensors::vtk_util::ConvertToVtkTransform;
 using systems::sensors::vtk_util::CreateSquarePlane;
 using systems::sensors::vtk_util::MakeVtkPointerArray;
+using vtk_base::ImageType;
+using vtk_base::RegistrationData;
+using vtk_base::RemoveFileExtension;
+using vtk_base::SetModelTransformMatrixToVtkCamera;
 
 namespace {
 
@@ -53,20 +55,6 @@ namespace {
 // range and mark them as too close. Clipping all geometry beyond z_far is not
 // a problem because they can unambiguously be marked as too far.
 const double kClippingPlaneNear = 0.01;
-const double kTerrainSize = 100.;
-
-void SetModelTransformMatrixToVtkCamera(
-    vtkCamera* camera, const vtkSmartPointer<vtkTransform>& X_WC) {
-  // vtkCamera contains a transformation as the internal state and
-  // ApplyTransform multiplies a given transformation on top of the internal
-  // transformation. Thus, resetting 'Set{Position, FocalPoint, ViewUp}' is
-  // needed here.
-  camera->SetPosition(0., 0., 0.);
-  camera->SetFocalPoint(0., 0., 1.);  // Sets z-forward.
-  camera->SetViewUp(0., -1, 0.);  // Sets y-down. For the detail, please refer
-  // to CameraInfo's document.
-  camera->ApplyTransform(X_WC);
-}
 
 float CheckRangeAndConvertToMeters(float z_buffer_value, double z_near,
                                    double z_far) {
@@ -89,29 +77,6 @@ float CheckRangeAndConvertToMeters(float z_buffer_value, double z_near,
   return z;
 }
 
-enum ImageType {
-  kColor = 0,
-  kLabel = 1,
-  kDepth = 2,
-};
-
-// TODO(SeanCurtis-TRI): Add X_PG pose to this data.
-// A package of data required to register a visual geometry.
-struct RegistrationData {
-  const PerceptionProperties& properties;
-  const RigidTransformd& X_FG;
-  const GeometryId id;
-  // The file name if the shape being registered is a mesh.
-  optional<std::string> mesh_filename;
-};
-
-std::string RemoveFileExtension(const std::string& filepath) {
-  const size_t last_dot = filepath.find_last_of(".");
-  if (last_dot == std::string::npos) {
-    throw std::logic_error("File has no extension.");
-  }
-  return filepath.substr(0, last_dot);
-}
 
 }  // namespace
 
@@ -127,8 +92,8 @@ ShaderCallback::ShaderCallback() :
 vtkNew<internal::ShaderCallback> RenderEngineVtk::uniform_setting_callback_;
 
 RenderEngineVtk::RenderEngineVtk(const RenderEngineVtkParams& parameters)
-    : RenderEngine(parameters.default_label ? *parameters.default_label
-                                            : RenderLabel::kUnspecified),
+    : RenderEngineVtkBase(parameters.default_label ? *parameters.default_label
+                                                   : RenderLabel::kUnspecified),
       pipelines_{{make_unique<RenderingPipeline>(),
                   make_unique<RenderingPipeline>(),
                   make_unique<RenderingPipeline>()}} {
@@ -140,15 +105,6 @@ RenderEngineVtk::RenderEngineVtk(const RenderEngineVtkParams& parameters)
   default_clear_color_ = ColorD{c(0), c(1), c(2)};
 
   InitializePipelines();
-}
-
-void RenderEngineVtk::UpdateViewpoint(const RigidTransformd& X_WC) {
-  vtkSmartPointer<vtkTransform> vtk_X_WC = ConvertToVtkTransform(X_WC);
-
-  for (const auto& pipeline : pipelines_) {
-    auto camera = pipeline->renderer->GetActiveCamera();
-    SetModelTransformMatrixToVtkCamera(camera, vtk_X_WC);
-  }
 }
 
 void RenderEngineVtk::RenderColorImage(const CameraProperties& camera,
@@ -223,107 +179,12 @@ void RenderEngineVtk::RenderLabelImage(const CameraProperties& camera,
   }
 }
 
-void RenderEngineVtk::ImplementGeometry(const Sphere& sphere, void* user_data) {
-  vtkNew<vtkSphereSource> vtk_sphere;
-  vtk_sphere->SetRadius(sphere.get_radius());
-  // TODO(SeanCurtis-TRI): Provide control for smoothness/tessellation.
-  vtk_sphere->SetThetaResolution(50);
-  vtk_sphere->SetPhiResolution(50);
-  ImplementGeometry(vtk_sphere.GetPointer(), user_data);
-}
-
-void RenderEngineVtk::ImplementGeometry(const Cylinder& cylinder,
-                                        void* user_data) {
-  vtkNew<vtkCylinderSource> vtk_cylinder;
-  vtk_cylinder->SetHeight(cylinder.get_length());
-  vtk_cylinder->SetRadius(cylinder.get_radius());
-  // TODO(SeanCurtis-TRI): Provide control for smoothness/tessellation.
-  vtk_cylinder->SetResolution(50);
-
-  // Since the cylinder in vtkCylinderSource is y-axis aligned, we need
-  // to rotate it to be z-axis aligned because that is what Drake uses.
-  vtkNew<vtkTransform> transform;
-  transform->RotateX(90);
-  vtkNew<vtkTransformPolyDataFilter> transform_filter;
-  transform_filter->SetInputConnection(vtk_cylinder->GetOutputPort());
-  transform_filter->SetTransform(transform.GetPointer());
-  transform_filter->Update();
-
-  ImplementGeometry(transform_filter.GetPointer(), user_data);
-}
-
-void RenderEngineVtk::ImplementGeometry(const HalfSpace&,
-                                        void* user_data) {
-  vtkSmartPointer<vtkPlaneSource> vtk_plane = CreateSquarePlane(kTerrainSize);
-
-  ImplementGeometry(vtk_plane.GetPointer(), user_data);
-}
-
-void RenderEngineVtk::ImplementGeometry(const Box& box, void* user_data) {
-  vtkNew<vtkCubeSource> cube;
-  cube->SetXLength(box.width());
-  cube->SetYLength(box.depth());
-  cube->SetZLength(box.height());
-  ImplementGeometry(cube.GetPointer(), user_data);
-}
-
-void RenderEngineVtk::ImplementGeometry(const Capsule&, void*) {
-  // TODO(tehbelinda - #10153): Add capsule support.
-  static const logging::Warn log_once(
-      "VTK does not support capsules yet; they will not appear in the "
-      "rendering.");
-}
-
-void RenderEngineVtk::ImplementGeometry(const Mesh& mesh, void* user_data) {
-  ImplementObj(mesh.filename(), mesh.scale(), user_data);
-}
-
-void RenderEngineVtk::ImplementGeometry(const Convex& convex, void* user_data) {
-  ImplementObj(convex.filename(), convex.scale(), user_data);
-}
-
-bool RenderEngineVtk::DoRegisterVisual(
-    GeometryId id, const Shape& shape, const PerceptionProperties& properties,
-    const RigidTransformd& X_FG) {
-  // Note: the user_data interface on reification requires a non-const pointer.
-  RegistrationData data{properties, X_FG, id};
-  shape.Reify(this, &data);
-  return true;
-}
-
-void RenderEngineVtk::DoUpdateVisualPose(GeometryId id,
-                                         const RigidTransformd& X_WG) {
-  vtkSmartPointer<vtkTransform> vtk_X_WG = ConvertToVtkTransform(X_WG);
-  // TODO(SeanCurtis-TRI): Perhaps provide the ability to specify actors for
-  //  specific pipelines; i.e. only update the color actor or only the label
-  //  actor, etc.
-  for (const auto& actor : actors_.at(id)) {
-    actor->SetUserTransform(vtk_X_WG);
-  }
-}
-
-bool RenderEngineVtk::DoRemoveGeometry(GeometryId id) {
-  auto iter = actors_.find(id);
-
-  if (iter != actors_.end()) {
-    std::array<vtkSmartPointer<vtkActor>, 3>& pipe_actors = iter->second;
-    for (int i = 0; i < kNumPipelines; ++i) {
-      // If the label actor hasn't been added to its renderer, this is a no-op.
-      pipelines_[i]->renderer->RemoveActor(pipe_actors[i]);
-    }
-    actors_.erase(iter);
-    return true;
-  }
-
-  return false;
-}
-
 std::unique_ptr<RenderEngine> RenderEngineVtk::DoClone() const {
   return std::unique_ptr<RenderEngineVtk>(new RenderEngineVtk(*this));
 }
 
 RenderEngineVtk::RenderEngineVtk(const RenderEngineVtk& other)
-    : RenderEngine(other),
+    : RenderEngineVtkBase(other),
       pipelines_{{make_unique<RenderingPipeline>(),
                   make_unique<RenderingPipeline>(),
                   make_unique<RenderingPipeline>()}},
@@ -442,25 +303,6 @@ void RenderEngineVtk::InitializePipelines() {
       default_clear_color_.r, default_clear_color_.g, default_clear_color_.b);
 }
 
-void RenderEngineVtk::ImplementObj(const std::string& file_name, double scale,
-                                   void* user_data) {
-  static_cast<RegistrationData*>(user_data)->mesh_filename = file_name;
-  vtkNew<vtkOBJReader> mesh_reader;
-  mesh_reader->SetFileName(file_name.c_str());
-  mesh_reader->Update();
-
-  vtkNew<vtkTransform> transform;
-  // TODO(SeanCurtis-TRI): Should I be allowing only isotropic scale.
-  // TODO(SeanCurtis-TRI): Only add the transform filter if scale is not all 1.
-  transform->Scale(scale, scale, scale);
-  vtkNew<vtkTransformPolyDataFilter> transform_filter;
-  transform_filter->SetInputConnection(mesh_reader->GetOutputPort());
-  transform_filter->SetTransform(transform.GetPointer());
-  transform_filter->Update();
-
-  ImplementGeometry(transform_filter.GetPointer(), user_data);
-}
-
 void RenderEngineVtk::ImplementGeometry(vtkPolyDataAlgorithm* source,
                                         void* user_data) {
   DRAKE_DEMAND(user_data != nullptr);
@@ -528,9 +370,8 @@ void RenderEngineVtk::ImplementGeometry(vtkPolyDataAlgorithm* source,
     texture_name = diffuse_map_name;
   } else if (diffuse_map_name.empty() && data.mesh_filename) {
     // This is the hack to search for mesh.png as a possible texture.
-    const std::string
-        alt_texture_name(RemoveFileExtension(*data.mesh_filename) +
-        ".png");
+    const std::string alt_texture_name(
+        RemoveFileExtension(*data.mesh_filename) + ".png");
     std::ifstream alt_file_exist(alt_texture_name);
     if (alt_file_exist) texture_name = alt_texture_name;
   }
@@ -561,24 +402,6 @@ void RenderEngineVtk::ImplementGeometry(vtkPolyDataAlgorithm* source,
 
   // Take ownership of the actors.
   actors_.insert({data.id, std::move(actors)});
-}
-
-void RenderEngineVtk::PerformVtkUpdate(const RenderingPipeline& p) {
-  p.window->Render();
-  p.filter->Modified();
-  p.filter->Update();
-}
-
-void RenderEngineVtk::UpdateWindow(const CameraProperties& camera,
-                                   bool show_window,
-                                   const RenderingPipeline* p,
-                                   const char* name) const {
-  // NOTE: This is a horrible hack for modifying what otherwise looks like
-  // const entities.
-  p->window->SetSize(camera.width, camera.height);
-  p->window->SetOffScreenRendering(!show_window);
-  if (show_window) p->window->SetWindowName(name);
-  p->renderer->GetActiveCamera()->SetViewAngle(camera.fov_y * 180 / M_PI);
 }
 
 void RenderEngineVtk::UpdateWindow(const DepthCameraProperties& camera,

@@ -17,32 +17,15 @@
 #include <vtkSmartPointer.h>
 #include <vtkWindowToImageFilter.h>
 
-#include "drake/geometry/render/render_engine.h"
 #include "drake/geometry/render/render_engine_ospray_factory.h"
-
-#ifndef DRAKE_DOXYGEN_CXX
-// This, and the ModuleInitVtkRenderingOpenGL2, provide the basis for enabling
-// VTK's OpenGL2 infrastructure.
-VTK_AUTOINIT_DECLARE(vtkRenderingOpenGL2)
-#endif
+#include "drake/geometry/render/render_engine_vtk_base.h"
 
 namespace drake {
 namespace geometry {
 namespace render {
-namespace internal {
-
-struct ModuleInitVtkRenderingOpenGL2 {
-  ModuleInitVtkRenderingOpenGL2() {
-    VTK_AUTOINIT_CONSTRUCT(vtkRenderingOpenGL2)
-  }
-};
-
-}  // namespace internal
 
 /** See documentation for MakeRenderEngineOspray() for details.  */
-class RenderEngineOspray final
-    : public RenderEngine,
-      private internal::ModuleInitVtkRenderingOpenGL2 {
+class RenderEngineOspray final : public RenderEngineVtkBase {
  public:
   // TODO(SeanCurtis-TRI): Swap these shenanigans with a legitimate removal of
   //  all copy and move semantics. The current copy constructor's contents
@@ -65,36 +48,20 @@ class RenderEngineOspray final
   RenderEngineOspray(
       const RenderEngineOsprayParams& parameters = RenderEngineOsprayParams());
 
-  /** @see RenderEngine::UpdateViewpoint().  */
-  void UpdateViewpoint(const math::RigidTransformd& X_WR) final;
-
   /** @see RenderEngine::RenderColorImage().  */
   void RenderColorImage(
       const CameraProperties& camera, bool show_window,
       systems::sensors::ImageRgba8U* color_image_out) const final;
 
-  /** @see RenderEngine::RenderDepthImage(). Currently throws as unimplemented.
-   */
+  /** @see RenderEngine::RenderDepthImage().  */
   void RenderDepthImage(
       const DepthCameraProperties& camera,
       systems::sensors::ImageDepth32F* depth_image_out) const final;
 
-  /** @see RenderEngine::RenderLabelImage(). Currently throws as unimplemented.
-   */
+  /** @see RenderEngine::RenderLabelImage().  */
   void RenderLabelImage(
       const CameraProperties& camera, bool show_window,
       systems::sensors::ImageLabel16I* label_image_out) const final;
-
-  /** @name    Shape reification  */
-  //@{
-  void ImplementGeometry(const Sphere& sphere, void* user_data) final;
-  void ImplementGeometry(const Cylinder& cylinder, void* user_data) final;
-  void ImplementGeometry(const HalfSpace& half_space, void* user_data) final;
-  void ImplementGeometry(const Box& box, void* user_data) final;
-  void ImplementGeometry(const Capsule& capsule, void* user_data) final;
-  void ImplementGeometry(const Mesh& mesh, void* user_data) final;
-  void ImplementGeometry(const Convex& convex, void* user_data) final;
-  //@}
 
   /** @name    Access the default properties
 
@@ -112,26 +79,12 @@ class RenderEngineOspray final
     return background_color_;
   }
 
-  using RenderEngine::default_render_label;
-
   //@}
 
  private:
-  // @see RenderEngine::DoRegisterVisual().
-  bool DoRegisterVisual(GeometryId id, const Shape& shape,
-                        const PerceptionProperties& properties,
-                        const math::RigidTransformd& X_WG) final;
-
   // Creates a copy of the set of parameters that were supplied when this
   // instance was created.
   RenderEngineOsprayParams get_params() const;
-
-  // @see RenderEngine::DoUpdateVisualPose().
-  void DoUpdateVisualPose(GeometryId id,
-                          const math::RigidTransformd& X_WG) final;
-
-  // @see RenderEngine::DoRemoveGeometry().
-  bool DoRemoveGeometry(GeometryId id) final;
 
   // @see RenderEngine::DoClone().
   std::unique_ptr<RenderEngine> DoClone() const final;
@@ -142,36 +95,14 @@ class RenderEngineOspray final
   // Initializes the VTK pipelines.
   void InitializePipelines(int samples_per_pixel);
 
-  // Common interface for loading an obj file -- used for both mesh and convex
-  // shapes.
-  void ImplementObj(const std::string& file_name, double scale,
-                    void* user_data);
-
-  // Performs the common setup for all shape types.
-  void ImplementGeometry(vtkPolyDataAlgorithm* source, void* user_data);
+  using ShapeReifier::ImplementGeometry;
+  void ImplementGeometry(vtkPolyDataAlgorithm* source,
+                         void* user_data) override;
 
   vtkNew<vtkLight> light_;
 
   // A single pipeline (for now): rgb.
   static constexpr int kNumPipelines = 1;
-
-  // The rendering pipeline for a single image type.
-  struct RenderingPipeline {
-    vtkNew<vtkRenderer> renderer;
-    vtkNew<vtkRenderWindow> window;
-    vtkNew<vtkWindowToImageFilter> filter;
-    vtkNew<vtkImageExport> exporter;
-  };
-
-  // Updates VTK rendering related objects including vtkRenderWindow,
-  // vtkWindowToImageFilter and vtkImageExporter, so that VTK reflects
-  // vtkActors' pose update for rendering.
-  static void PerformVtkUpdate(const RenderingPipeline& p);
-
-  // This actually modifies internal state; the pointer to a const pipeline
-  // allows mutation via the contained vtkNew pointers.
-  void UpdateWindow(const CameraProperties& camera, bool show_window,
-                    const RenderingPipeline* p, const char* name) const;
 
   std::array<std::unique_ptr<RenderingPipeline>, kNumPipelines> pipelines_;
 
