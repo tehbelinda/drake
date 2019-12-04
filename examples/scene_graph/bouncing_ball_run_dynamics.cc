@@ -24,9 +24,13 @@
 DEFINE_double(simulation_time, 10.0,
               "Desired duration of the simulation in seconds.");
 DEFINE_bool(render_on, true, "Sets rendering generally enabled (or not)");
-DEFINE_bool(color, true, "Sets the enabled camera to render color");
-DEFINE_bool(depth, true, "Sets the enabled camera to render depth");
-DEFINE_bool(label, true, "Sets the enabled camera to render label");
+DEFINE_int32(ball_count, 2, "Number of bouncing balls to include");
+DEFINE_int32(camera_count, 1, "Number of cameras to include");
+DEFINE_int32(camera_image_width, 640, "Width of camera image");
+DEFINE_int32(camera_image_height, 480, "Height of camera image");
+DEFINE_bool(color, true, "Sets the enabled cameras to render color");
+DEFINE_bool(depth, true, "Sets the enabled cameras to render depth");
+DEFINE_bool(label, true, "Sets the enabled cameras to render label");
 DEFINE_double(render_fps, 10, "Frames per simulation second to render");
 
 namespace drake {
@@ -111,29 +115,30 @@ int do_main() {
     properties.AddProperty("label", "id", RenderLabel(ground_id.get_value()));
     scene_graph->AssignRole(global_source, ground_id, properties);
 
-    // Create the camera.
-    DepthCameraProperties camera_properties(640, 480, M_PI_4, render_name, 0.1,
-                                            2.0);
-    // We need to position and orient the camera. We have the camera body frame
-    // B (see rgbd_sensor.h) and the camera frame C (see camera_info.h).
-    // By default X_BC = I in the RgbdSensor. So, to aim the camera, Cz = Bz
-    // should point from the camera position to the origin. By points *down* the
-    // image, so we need to align it in the -Wz direction. So,  we compute the
-    // basis using camera Y-ish in the By ≈ -Wz direction to compute Bx, and
-    // then use Bx an and Bz to compute By.
-    const Vector3d p_WB(0.3, -1, 0.25);
-    // Set rotation looking at the origin.
-    const Vector3d Bz_W = -p_WB.normalized();
-    const Vector3d Bx_W = -Vector3d::UnitZ().cross(Bz_W).normalized();
-    const Vector3d By_W = Bz_W.cross(Bx_W).normalized();
-    const RotationMatrixd R_WB =
-        RotationMatrixd::MakeFromOrthonormalColumns(Bx_W, By_W, Bz_W);
-    const RigidTransformd X_WB(R_WB, p_WB);
+    // Create the cameras.
+    std::vector<RgbdSensor*> cameras;
+    DepthCameraProperties camera_properties(FLAGS_camera_image_width,
+                                            FLAGS_camera_image_height, M_PI_4,
+                                            render_name, 0.1, 2.0);
 
-    auto camera = builder.AddSystem<RgbdSensor>(
-        scene_graph->world_frame_id(), X_WB, camera_properties);
-    builder.Connect(scene_graph->get_query_output_port(),
-                    camera->query_object_input_port());
+    // Set them up in a circular array of cameras. At "zero" degrees, the camera
+    // is located at (0, -1, 0) and is looking in the (0, 1, 0) direction (with
+    // a slight downward angle). To achieve that, the camera has to yaw 90
+    // degrees. All other cameras are simply rotations around that.
+    const double radius = 1.5;
+    for (int i = 0; i < FLAGS_camera_count; ++i) {
+      const double theta = M_PI * 2 * i / FLAGS_camera_count;
+      const double x = radius * cos(theta - M_PI / 2);
+      const double y = radius * sin(theta - M_PI / 2);
+      Vector3<double> p_WC(x, y, 0.75);
+      const RotationMatrixd R_WC{math::RollPitchYawd(0, 0.4, M_PI_2 + theta)};
+      const RigidTransformd X_WC(R_WC, p_WC);
+      auto camera = builder.AddSystem<RgbdSensor>(scene_graph->world_frame_id(),
+                                                  X_WC, camera_properties);
+      builder.Connect(scene_graph->get_query_output_port(),
+                      camera->query_object_input_port());
+      cameras.push_back(camera);
+    }
 
     // Broadcast the images.
     // Publishing images to drake visualizer
@@ -145,36 +150,41 @@ int do_main() {
     if ((FLAGS_color || FLAGS_depth || FLAGS_label)) {
       image_array_lcm_publisher =
           builder.template AddSystem(systems::lcm::LcmPublisherSystem::Make<
-              robotlocomotion::image_array_t>(
+                                     robotlocomotion::image_array_t>(
               "DRAKE_RGBD_CAMERA_IMAGES", &lcm,
               1. / FLAGS_render_fps /* publish period */));
       image_array_lcm_publisher->set_name("publisher");
 
-      builder.Connect(
-          image_to_lcm_image_array->image_array_t_msg_output_port(),
-          image_array_lcm_publisher->get_input_port());
-    }
+      builder.Connect(image_to_lcm_image_array->image_array_t_msg_output_port(),
+                      image_array_lcm_publisher->get_input_port());
+      }
 
-    if (FLAGS_color) {
-      const auto& port =
-          image_to_lcm_image_array->DeclareImageInputPort<PixelType::kRgba8U>(
-              "color");
-      builder.Connect(camera->color_image_output_port(), port);
-    }
+      if (FLAGS_color) {
+        for (int i = 0; i < FLAGS_camera_count; ++i) {
+          const auto& port = image_to_lcm_image_array
+                                 ->DeclareImageInputPort<PixelType::kRgba8U>(
+                                     "color" + std::to_string(i));
+          builder.Connect(cameras[i]->color_image_output_port(), port);
+        }
+      }
 
-    if (FLAGS_depth) {
-      const auto& port =
-          image_to_lcm_image_array
-              ->DeclareImageInputPort<PixelType::kDepth32F>("depth");
-      builder.Connect(camera->depth_image_32F_output_port(), port);
-    }
+      if (FLAGS_depth) {
+        for (int i = 0; i < FLAGS_camera_count; ++i) {
+          const auto& port = image_to_lcm_image_array
+                                 ->DeclareImageInputPort<PixelType::kDepth32F>(
+                                     "depth" + std::to_string(i));
+          builder.Connect(cameras[i]->depth_image_32F_output_port(), port);
+        }
+      }
 
-    if (FLAGS_label) {
-      const auto& port =
-          image_to_lcm_image_array
-              ->DeclareImageInputPort<PixelType::kLabel16I>("label");
-      builder.Connect(camera->label_image_output_port(), port);
-    }
+      if (FLAGS_label) {
+        for (int i = 0; i < FLAGS_camera_count; ++i) {
+          const auto& port = image_to_lcm_image_array
+                                 ->DeclareImageInputPort<PixelType::kLabel16I>(
+                                     "label" + std::to_string(i));
+          builder.Connect(cameras[i]->label_image_output_port(), port);
+        }
+      }
   }
 
   auto diagram = builder.Build();

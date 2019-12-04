@@ -1,0 +1,28 @@
+load(
+  "@drake//tools/skylark:drake_cc.bzl",
+  "drake_cc_binary",
+)
+load("//tools/install:install_data.bzl", "install_data")
+
+drake_cc_binary(
+  name = "run_double_pendulum_passive",
+  srcs = [
+    "run_double_pendulum_passive.cc",
+  ],
+  data = [
+    ":models",
+    "//tools:drake_visualizer",
+  ],
+  deps = [
+    "//common:find_resource",
+    "//geometry:geometry_visualization",
+    "//lcm",
+    "//multibody/parsing",
+    "//multibody/plant",
+    "//systems/analysis",
+    "//systems/framework",
+    "@sdformat",
+  ],
+)
+
+install_data()
