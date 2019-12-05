@@ -113,6 +113,10 @@ class RenderEngineOspray final
     return background_color_;
   }
 
+  /* Provides access to the light for manual configuration since it's currently
+   bound to the camera position.  */
+  const vtkNew<vtkLight>& light() { return light_; }
+
   using RenderEngine::default_render_label;
 
   //@}
@@ -141,7 +145,7 @@ class RenderEngineOspray final
   RenderEngineOspray(const RenderEngineOspray& other);
 
   // Initializes the VTK pipelines.
-  void InitializePipelines(int samples_per_pixel);
+  void InitializePipelines(int samples_per_pixel, bool use_shadows);
 
   // Common interface for loading an obj file -- used for both mesh and convex
   // shapes.
