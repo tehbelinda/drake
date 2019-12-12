@@ -133,7 +133,6 @@ class RenderEngineBenchmark : public benchmark::Fixture {
     const double row_offset = (rows - 1) / 2.;
     const double col_offset = (std::min(sphere_count, kCols) - 1) / 2.;
     int spheres_remaining = sphere_count;
-    std::unordered_map<GeometryId, RigidTransformd> poses;
     for (int i = 0; i < rows; ++i) {
       for (int j = 0; j < kCols; ++j) {
         if (spheres_remaining == 0) break;
@@ -144,11 +143,11 @@ class RenderEngineBenchmark : public benchmark::Fixture {
                                   true /* needs update */);
         RigidTransformd X_WV{
             Vector3d{i - row_offset, j - col_offset, kZSpherePosition}};
-        poses.insert({geometry_id, X_WV});
+        poses_.insert({geometry_id, X_WV});
         --spheres_remaining;
       }
     }
-    renderer_->UpdatePoses(poses);
+    renderer_->UpdatePoses(poses_);
 
     // Add a background object behind the spheres for capturing shadows.
     renderer_->RegisterVisual(
@@ -176,6 +175,7 @@ class RenderEngineBenchmark : public benchmark::Fixture {
   ImageLabel16I label_image_;
   const Vector3d bg_rgb_{200, 0, 250};
   const Eigen::Vector4d sphere_rgba_{0, 0.8, 0.5, 1};
+  std::unordered_map<GeometryId, RigidTransformd> poses_;
 };
 
 BENCHMARK_DEFINE_F(RenderEngineBenchmark, VtkColor)
@@ -292,6 +292,10 @@ BENCHMARK_DEFINE_F(RenderEngineBenchmark, OsprayPathColor)
   SetupOsprayRender(state.range(0), state.range(1), state.range(2),
                     state.range(3), OsprayMode::kPathTracer, true);
   for (auto _ : state) {
+    // NOTE: The ospray renderer has a quirk; if no poses update subsequent
+    // render passes seem to accumulate into the same frame buffer, improving
+    // the image quality the same as simply doing more passes.
+    renderer_->UpdatePoses(poses_);
     for (int i = 0; i < state.range(1); ++i) {
       renderer_->RenderColorImage(cameras_[i], kShowWindow, &color_image_);
     }

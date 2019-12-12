@@ -95,7 +95,7 @@ RenderEngineOspray::RenderEngineOspray(const RenderEngineOsprayParams& params)
 
   if (params.background_color) {
     const Vector3d& c = *params.background_color;
-    background_color_ = ColorD{c(0), c(1), c(2)};
+    background_color_ = ColorD{c(0) / 255.0, c(1) / 255.0, c(2) / 255.0};
   }
 
   InitializePipelines(params.samples_per_pixel, params.use_shadows);
