@@ -119,6 +119,7 @@ class RenderEngineOspray final
 
   using RenderEngine::default_render_label;
 
+  void SetDefaultLightPosition(const Vector3<double>& position) final;
   //@}
 
  private:

@@ -11,6 +11,7 @@ drake_cc_binary(
         "//common:temp_directory",
         "//geometry/render",
         "//systems/sensors:image_writer",
+        "@gflags",
         "@googlebenchmark//:benchmark",
     ],
 )

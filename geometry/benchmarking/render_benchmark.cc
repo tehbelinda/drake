@@ -1,10 +1,10 @@
 #include <unistd.h>
 
 #include <benchmark/benchmark.h>
+#include <gflags/gflags.h>
 
 #include "drake/common/filesystem.h"
 #include "drake/common/temp_directory.h"
-#include "drake/geometry/render/render_engine_ospray.h"
 #include "drake/geometry/render/render_engine_ospray_factory.h"
 #include "drake/geometry/render/render_engine_vtk_factory.h"
 #include "drake/systems/sensors/image_writer.h"
@@ -26,7 +26,6 @@ using geometry::render::MakeRenderEngineOspray;
 using geometry::render::MakeRenderEngineVtk;
 using geometry::render::OsprayMode;
 using geometry::render::RenderEngine;
-using geometry::render::RenderEngineOspray;
 using geometry::render::RenderEngineOsprayParams;
 using geometry::render::RenderEngineVtkParams;
 using geometry::render::RenderLabel;
@@ -38,9 +37,9 @@ using systems::sensors::ImageRgba8U;
 using systems::sensors::SaveToPng;
 using systems::sensors::SaveToTiff;
 
-// Default options for saving the rendered images.
-const bool kSaveImages = false;
-const char kSaveImagePath[] = "";
+DEFINE_string(save_image_path, "",
+              "Enables saving rendered images in the given location");
+DEFINE_bool(show_window, false, "Whether to display the rendered images");
 
 // Default sphere array sizes.
 const int kCols = 4;
@@ -51,7 +50,6 @@ const double kZSpherePosition = -4.;
 const double kZNear = 0.5;
 const double kZFar = 5.;
 const double kFovY = M_PI_4;
-const bool kShowWindow = false;
 
 class RenderEngineBenchmark : public benchmark::Fixture {
  public:
@@ -94,13 +92,6 @@ class RenderEngineBenchmark : public benchmark::Fixture {
     RenderEngineOsprayParams params{mode, {}, bg_rgb_, 1, use_shadows};
     renderer_ = MakeRenderEngineOspray(params);
     SetupScene(sphere_count, camera_count, width, height);
-
-    // Offset the light from it's default position shared with the camera, i.e.
-    // (0, 0, 1), so that shadows can be seen in the render. Currently there is
-    // no light declaration support so we need to configure it manually.
-    static_cast<RenderEngineOspray*>(renderer_.get())
-        ->light()
-        ->SetPosition(0.5, 0.5, 1);
   }
 
   // Helper function for generating the image path name based on the benchmark
@@ -108,8 +99,9 @@ class RenderEngineBenchmark : public benchmark::Fixture {
   static std::string image_path_name(const std::string& test_name,
                                      const benchmark::State& state,
                                      const std::string& format) {
-    filesystem::path save_path =
-        kSaveImagePath[0] == '\0' ? temp_directory() : kSaveImagePath;
+    filesystem::path save_path = FLAGS_save_image_path.empty()
+                                     ? temp_directory()
+                                     : FLAGS_save_image_path;
     return save_path.append(test_name + "_" +
                             std::to_string(state.range(0)) + "_" +
                             std::to_string(state.range(1)) + "_" +
@@ -161,6 +153,11 @@ class RenderEngineBenchmark : public benchmark::Fixture {
                             kZNear, kZFar);
     }
 
+    // Offset the light from it's default position shared with the camera, i.e.
+    // (0, 0, 1), so that shadows can be seen in the render. Currently there is
+    // no light declaration support so we need to configure it manually.
+    renderer_->SetDefaultLightPosition(Vector3d{0.5, 0.5, 1});
+
     // Set up the different image types.
     color_image_ = ImageRgba8U(width, height);
     depth_image_ = ImageDepth32F(width, height);
@@ -185,10 +182,11 @@ BENCHMARK_DEFINE_F(RenderEngineBenchmark, VtkColor)
                  state.range(3));
   for (auto _ : state) {
     for (int i = 0; i < state.range(1); ++i) {
-      renderer_->RenderColorImage(cameras_[i], kShowWindow, &color_image_);
+      renderer_->RenderColorImage(cameras_[i], FLAGS_show_window,
+                                  &color_image_);
     }
   }
-  if (kSaveImages) {
+  if (!FLAGS_save_image_path.empty()) {
     SaveToPng(color_image_, image_path_name("VtkColor", state, "png"));
   }
 }
@@ -212,7 +210,7 @@ BENCHMARK_DEFINE_F(RenderEngineBenchmark, VtkDepth)
       renderer_->RenderDepthImage(cameras_[i], &depth_image_);
     }
   }
-  if (kSaveImages) {
+  if (!FLAGS_save_image_path.empty()) {
     SaveToTiff(depth_image_, image_path_name("VtkDepth", state, "tiff"));
   }
 }
@@ -228,10 +226,11 @@ BENCHMARK_DEFINE_F(RenderEngineBenchmark, VtkLabel)
                  state.range(3));
   for (auto _ : state) {
     for (int i = 0; i < state.range(1); ++i) {
-      renderer_->RenderLabelImage(cameras_[i], kShowWindow, &label_image_);
+      renderer_->RenderLabelImage(cameras_[i], FLAGS_show_window,
+                                  &label_image_);
     }
   }
-  if (kSaveImages) {
+  if (!FLAGS_save_image_path.empty()) {
     SaveToPng(label_image_, image_path_name("VtkLabel", state, "png"));
   }
 }
@@ -247,10 +246,11 @@ BENCHMARK_DEFINE_F(RenderEngineBenchmark, OsprayRayColor)
                     state.range(3), OsprayMode::kRayTracer, true);
   for (auto _ : state) {
     for (int i = 0; i < state.range(1); ++i) {
-      renderer_->RenderColorImage(cameras_[i], kShowWindow, &color_image_);
+      renderer_->RenderColorImage(cameras_[i], FLAGS_show_window,
+                                  &color_image_);
     }
   }
-  if (kSaveImages) {
+  if (!FLAGS_save_image_path.empty()) {
     SaveToPng(color_image_, image_path_name("OsprayRayColor", state, "png"));
   }
 }
@@ -271,10 +271,11 @@ BENCHMARK_DEFINE_F(RenderEngineBenchmark, OsprayRayColorShadowsOff)
                     state.range(3), OsprayMode::kRayTracer, false);
   for (auto _ : state) {
     for (int i = 0; i < state.range(1); ++i) {
-      renderer_->RenderColorImage(cameras_[i], kShowWindow, &color_image_);
+      renderer_->RenderColorImage(cameras_[i], FLAGS_show_window,
+                                  &color_image_);
     }
   }
-  if (kSaveImages) {
+  if (!FLAGS_save_image_path.empty()) {
     SaveToPng(color_image_,
               image_path_name("OsprayRayColorShadowsOff", state, "png"));
   }
@@ -297,10 +298,11 @@ BENCHMARK_DEFINE_F(RenderEngineBenchmark, OsprayPathColor)
     // the image quality the same as simply doing more passes.
     renderer_->UpdatePoses(poses_);
     for (int i = 0; i < state.range(1); ++i) {
-      renderer_->RenderColorImage(cameras_[i], kShowWindow, &color_image_);
+      renderer_->RenderColorImage(cameras_[i], FLAGS_show_window,
+                                  &color_image_);
     }
   }
-  if (kSaveImages) {
+  if (!FLAGS_save_image_path.empty()) {
     SaveToPng(color_image_, image_path_name("OsprayPathColor", state, "png"));
   }
 }
@@ -315,4 +317,8 @@ BENCHMARK_REGISTER_F(RenderEngineBenchmark, OsprayPathColor)
 }  // namespace geometry
 }  // namespace drake
 
-BENCHMARK_MAIN();
+int main(int argc, char** argv) {
+  gflags::ParseCommandLineFlags(&argc, &argv, true);
+  benchmark::Initialize(&argc, argv);
+  benchmark::RunSpecifiedBenchmarks();
+}

@@ -225,6 +225,11 @@ void RenderEngineOspray::ImplementGeometry(const Convex& convex,
   ImplementObj(convex.filename(), convex.scale(), user_data);
 }
 
+void RenderEngineOspray::SetDefaultLightPosition(
+    const Vector3<double>& position) {
+  light_->SetPosition(position[0], position[1], position[2]);
+}
+
 bool RenderEngineOspray::DoRegisterVisual(
     GeometryId id, const Shape& shape, const PerceptionProperties& properties,
     const RigidTransformd& X_FG) {
