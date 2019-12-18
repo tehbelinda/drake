@@ -17,6 +17,7 @@
 #include <vtkTransform.h>
 #include <vtkTransformPolyDataFilter.h>
 
+#include "drake/common/profiler.h"
 #include "drake/common/text_logging.h"
 #include "drake/geometry/render/render_engine_vtk_base.h"
 #include "drake/geometry/render/shaders/depth_shaders.h"
@@ -55,6 +56,15 @@ namespace {
 // a problem because they can unambiguously be marked as too far.
 const double kClippingPlaneNear = 0.01;
 const double kTerrainSize = 100.;
+
+drake::common::TimerIndex vtk_color_timer = addTimer("VtkColor");
+drake::common::TimerIndex perform_update_timer = addTimer("VtkColor_PerformVtkUpdate");
+drake::common::TimerIndex window_render_timer =
+    addTimer("VtkColor_PerformVtkUpdate_WindowRender");
+drake::common::TimerIndex filter_modified_timer =
+    addTimer("VtkColor_PerformVtkUpdate_FilterModified");
+drake::common::TimerIndex filter_update_timer =
+    addTimer("VtkColor_PerformVtkUpdate_FilterUpdate");
 
 void SetModelTransformMatrixToVtkCamera(
     vtkCamera* camera, const vtkSmartPointer<vtkTransform>& X_WC) {
@@ -155,13 +165,16 @@ void RenderEngineVtk::UpdateViewpoint(const RigidTransformd& X_WC) {
 void RenderEngineVtk::RenderColorImage(const CameraProperties& camera,
                                        bool show_window,
                                        ImageRgba8U* color_image_out) const {
+  startTimer(vtk_color_timer);
   UpdateWindow(camera, show_window, pipelines_[ImageType::kColor].get(),
                "Color Image");
+  startTimer(perform_update_timer);
   PerformVtkUpdate(*pipelines_[ImageType::kColor]);
-
+  lapTimer(perform_update_timer);
   // TODO(SeanCurtis-TRI): Determine if this copies memory (and find some way
   // around copying).
   pipelines_[ImageType::kColor]->exporter->Export(color_image_out->at(0, 0));
+  lapTimer(vtk_color_timer);
 }
 
 void RenderEngineVtk::RenderDepthImage(const DepthCameraProperties& camera,
@@ -571,9 +584,15 @@ void RenderEngineVtk::SetDefaultLightPosition(const Vector3<double>& position) {
 }
 
 void RenderEngineVtk::PerformVtkUpdate(const RenderingPipeline& p) {
+  startTimer(window_render_timer);
   p.window->Render();
+  lapTimer(window_render_timer);
+  startTimer(filter_modified_timer);
   p.filter->Modified();
+  lapTimer(filter_modified_timer);
+  startTimer(filter_update_timer);
   p.filter->Update();
+  lapTimer(filter_update_timer);
 }
 
 void RenderEngineVtk::UpdateWindow(const CameraProperties& camera,

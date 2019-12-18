@@ -4,6 +4,7 @@
 #include <gflags/gflags.h>
 
 #include "drake/common/filesystem.h"
+#include "drake/common/profiler.h"
 #include "drake/common/temp_directory.h"
 #include "drake/geometry/render/render_engine_ospray_factory.h"
 #include "drake/geometry/render/render_engine_vtk_factory.h"
@@ -310,7 +311,7 @@ BENCHMARK_DEFINE_F(RenderEngineBenchmark, OsprayPathColor)
   }
 }
 BENCHMARK_REGISTER_F(RenderEngineBenchmark, OsprayPathColor)
-    ->Unit(benchmark::kMillisecond)
+    ->Unit(benchmark::kMillisecond)->MinTime(2)
     ->Args({1, 1, 640, 480})    // 1 sphere, 1 camera, 640 width, 480 height.
     ->Args({1, 10, 640, 480});  // 1 sphere, 10 cameras, 640 width, 480 height.
 
@@ -324,4 +325,5 @@ int main(int argc, char** argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   benchmark::Initialize(&argc, argv);
   benchmark::RunSpecifiedBenchmarks();
+  std::cout << TableOfAverages() << "\n";
 }

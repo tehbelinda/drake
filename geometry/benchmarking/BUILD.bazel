@@ -8,6 +8,7 @@ drake_cc_binary(
     srcs = ["render_benchmark.cc"],
     deps = [
         "//common:filesystem",
+        "//common:profiler",
         "//common:temp_directory",
         "//geometry/render",
         "//systems/sensors:image_writer",

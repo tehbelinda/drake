@@ -20,6 +20,7 @@
 #include <vtkTransform.h>
 #include <vtkTransformPolyDataFilter.h>
 
+#include "drake/common/profiler.h"
 #include "drake/common/text_logging.h"
 #include "drake/geometry/render/render_engine_vtk_base.h"
 #include "drake/systems/sensors/color_palette.h"
@@ -42,6 +43,16 @@ using systems::sensors::vtk_util::ConvertToVtkTransform;
 using systems::sensors::vtk_util::CreateSquarePlane;
 
 namespace {
+
+drake::common::TimerIndex ospray_color_timer = addTimer("OsprayColor");
+drake::common::TimerIndex perform_update_timer =
+    addTimer("OsprayColor_PerformVtkUpdate");
+drake::common::TimerIndex window_render_timer =
+    addTimer("OsprayColor_PerformVtkUpdate_WindowRender");
+drake::common::TimerIndex filter_modified_timer =
+    addTimer("OsprayColor_PerformVtkUpdate_FilterModified");
+drake::common::TimerIndex filter_update_timer =
+    addTimer("OsprayColor_PerformVtkUpdate_FilterUpdate");
 
 void SetModelTransformMatrixToVtkCamera(
     vtkCamera* camera, const vtkSmartPointer<vtkTransform>& X_WC) {
@@ -113,9 +124,12 @@ void RenderEngineOspray::UpdateViewpoint(const RigidTransformd& X_WC) {
 void RenderEngineOspray::RenderColorImage(const CameraProperties& camera,
                                           bool show_window,
                                           ImageRgba8U* color_image_out) const {
+  startTimer(ospray_color_timer);
   UpdateWindow(camera, show_window, pipelines_[ImageType::kColor].get(),
                "Color Image");
+  startTimer(perform_update_timer);
   PerformVtkUpdate(*pipelines_[ImageType::kColor]);
+  lapTimer(perform_update_timer);
 
   // TODO(SeanCurtis-TRI): Determine if this copies memory (and find some way
   // around copying).
@@ -156,6 +170,7 @@ void RenderEngineOspray::RenderColorImage(const CameraProperties& camera,
       }
     }
   }
+  lapTimer(ospray_color_timer);
 }
 
 void RenderEngineOspray::RenderDepthImage(const DepthCameraProperties&,
@@ -515,12 +530,18 @@ void RenderEngineOspray::ImplementGeometry(vtkPolyDataAlgorithm* source,
 }
 
 void RenderEngineOspray::PerformVtkUpdate(const RenderingPipeline& p) {
+  startTimer(window_render_timer);
   p.window->Render();
+  lapTimer(window_render_timer);
   // See the note in the VTK documentation about explicitly calling Modified
   // on the filter:
   // https://vtk.org/doc/nightly/html/classvtkWindowToImageFilter.html#details
+  startTimer(filter_modified_timer);
   p.filter->Modified();
+  lapTimer(filter_modified_timer);
+  startTimer(filter_update_timer);
   p.filter->Update();
+  lapTimer(filter_update_timer);
 }
 
 void RenderEngineOspray::UpdateWindow(const CameraProperties& camera,

@@ -169,18 +169,19 @@ double averageTimeInSec(TimerIndex index) {
 }
 
 std::string TableOfAverages() {
-  using Seconds = std::ratio<1, 1>;
+  using MilliSeconds = std::ratio<1, 1000>;
   const Profiler& profiler = Profiler::getMutableInstance();
   const int count = profiler.timerCount();
   std::stringstream ss;
   ss << "All registered profiles average times:\n";
-  ss << fmt::format("{:>15}{:>10}{:>17}  {}", "Time (s)", "Samples",
-                    "Total Time (s)", "Label") << "\n";
+  ss << fmt::format("{:>22}{:>10}{:>17}  {}", "Time (ms)", "Samples",
+                    "Total Time (ms)", "Label") << "\n";
   for (TimerIndex i(0); i < count; ++i) {
-    double time = profiler.average<Seconds>(i);
+    double time = profiler.average<MilliSeconds>(i);
 
-    ss << fmt::format("{:>15}{:>10}{:>17}  {}", time, profiler.laps(i),
-                      profiler.total<Seconds>(i), profiler.displayString(i));
+    ss << fmt::format("{:>22}{:>10}{:>17}  {}", time, profiler.laps(i),
+                      profiler.total<MilliSeconds>(i),
+                      profiler.displayString(i));
     if (i < count - 1) ss << "\n";
   }
   return ss.str();
