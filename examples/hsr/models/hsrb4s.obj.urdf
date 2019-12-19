@@ -871,7 +871,7 @@ POSSIBILITY OF SUCH DAMAGE.
     <inertial>
       <mass value="1.339295"/>
       <origin xyz="0.000632 0.006404 0.118529"/>
-      <inertia ixx="7.528" ixy="-0.000020284207" ixz="-0.000022947194" iyy="0.007102" iyz="-0.000091796075" izz="0.001552"/>
+      <inertia ixx="0.0085" ixy="-0.000020284207" ixz="-0.000022947194" iyy="0.007102" iyz="-0.000091796075" izz="0.001552"/>
     </inertial>
     <visual>
       <geometry>
@@ -1184,7 +1184,7 @@ POSSIBILITY OF SUCH DAMAGE.
     <inertial>
       <mass value="0.027731"/>
       <origin xyz="0.011116 0.005679 0.017532"/>
-      <inertia ixx="0.000004451952" ixy="-0.000000617574" ixz="0.000000503765" iyy="0.000000503765" iyz="-0.000000435048" izz="0.000004456764"/>
+      <inertia ixx="0.00000307518" ixy="-0.00000004954" ixz="0.000000009481" iyy="0.000004074079" iyz="-0.000000843648" izz="0.000002807795"/>
     </inertial>
     <visual>
       <geometry>
