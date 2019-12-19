@@ -1,0 +1,27 @@
+# -*- python -*-
+
+load(
+    "@drake//tools/skylark:drake_cc.bzl",
+    "drake_cc_binary",
+)
+load("//tools/install:install_data.bzl", "install_data")
+
+drake_cc_binary(
+    name = "hsr_demo",
+    srcs = [
+        "hsr_demo.cc",
+    ],
+    data = [
+        ":models",
+    ],
+    deps = [
+        "//common:find_resource",
+        "//geometry:geometry_visualization",
+        "//multibody/parsing",
+        "//multibody/plant:contact_results_to_lcm",
+        "//systems/analysis:simulator",
+        "//systems/framework:diagram",
+    ],
+)
+
+install_data()
