@@ -7,7 +7,7 @@ import argparse
 
 import numpy as np
 
-from pydrake.common import FindResourceOrThrow
+from pydrake.common import FindResourceOrThrow, temp_directory
 from pydrake.examples.manipulation_station import ManipulationStation
 from pydrake.multibody.parsing import Parser
 from pydrake.multibody.plant import AddMultibodyPlantSceneGraph
@@ -89,6 +89,46 @@ def run_manipulation_example(args):
     simulator.AdvanceTo(args.duration)
 
 
+def run_pendulum_example_with_playback(args):
+    builder = DiagramBuilder()
+    plant, scene_graph = AddMultibodyPlantSceneGraph(builder, 0.0)
+    parser = Parser(plant)
+    parser.AddModelFromFile(FindResourceOrThrow(
+        "drake/examples/pendulum/Pendulum.urdf"))
+    plant.WeldFrames(plant.world_frame(), plant.GetFrameByName("base"))
+    plant.Finalize()
+
+    pose_bundle_output_port = scene_graph.get_pose_bundle_output_port()
+    Tview = np.array([[1., 0., 0., 0.],
+                      [0., 0., 1., 0.],
+                      [0., 0., 0., 1.]],
+                     dtype=np.float64)
+    visualizer = builder.AddSystem(PlanarSceneGraphVisualizer(
+        scene_graph, T_VW=Tview, xlim=[-1.2, 1.2], ylim=[-1.2, 1.2]))
+    builder.Connect(pose_bundle_output_port, visualizer.get_input_port(0))
+    visualizer.start_recording()
+
+    diagram = builder.Build()
+    simulator = Simulator(diagram)
+    simulator.Initialize()
+    simulator.set_target_realtime_rate(1.0)
+
+    # Fix the input port to zero.
+    plant_context = diagram.GetMutableSubsystemContext(
+        plant, simulator.get_mutable_context())
+    plant_context.FixInputPort(
+        plant.get_actuation_input_port().get_index(),
+        np.zeros(plant.num_actuators()))
+    plant_context.SetContinuousState([0.5, 0.1])
+    simulator.AdvanceTo(args.duration)
+
+    visualizer.stop_recording()
+    ani = visualizer.get_recording()
+
+    # Playback the recording and save the output.
+    ani.save("{}/pend_playback.mp4".format(temp_directory()), fps=30)
+
+
 def main():
     np.set_printoptions(precision=5, suppress=True)
     parser = argparse.ArgumentParser(
@@ -102,7 +142,8 @@ def main():
     parser.add_argument("-m", "--models",
                         type=str,
                         nargs="*",
-                        help="Models to run, at least one of [pend, manip]",
+                        help="Models to run, at least one of [pend, manip, "
+                             "pend_playback]",
                         default=["pend"])
     args = parser.parse_args()
 
@@ -111,6 +152,8 @@ def main():
             run_pendulum_example(args)
         elif model == "manip":
             run_manipulation_example(args)
+        elif model == "pend_playback":
+            run_pendulum_example_with_playback(args)
         else:
             print("Unrecognized model %s." % model)
             parser.print_usage()
