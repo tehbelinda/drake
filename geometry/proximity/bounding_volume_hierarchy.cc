@@ -102,20 +102,43 @@ BoundingVolumeHierarchy<MeshType>::BuildBVTree(
     return std::make_unique<BvNode<MeshType>>(aabb, start->first);
 
   } else {
-    // Sort by centroid along the axis of greatest spread.
-    int axis{};
-    aabb.half_width().maxCoeff(&axis);
-    // TODO(tehbelinda): Use a better heuristic for splitting into branches,
-    // e.g. surface area.
-    std::sort(start, end, [axis](const CentroidPair& a, const CentroidPair& b) {
-      return a.second[axis] < b.second[axis];
-    });
+    // We want to use a volume based heuristic to find the optimal splitting
+    // point. First we sort the elements by their centroid. Then we compute the
+    // cost by summing the volume of the two child bounding volumes formed at
+    // each interval. We repeat this for each axis to find the minimum cost
+    // across all of them.
+    double optimal_volume = std::numeric_limits<double>::max();
+    double optimal_axis = 0;
+    typename std::vector<CentroidPair>::iterator optimal_split;
+    for (int axis = 0; axis < 3; ++axis) {
+      std::sort(start, end,
+                [axis](const CentroidPair& a, const CentroidPair& b) {
+                  return a.second[axis] < b.second[axis];
+                });
+      for (typename std::vector<CentroidPair>::iterator split = start + 1;
+           split < end; ++split) {
+        const double child_volume =
+            ComputeBoundingVolume(mesh, start, split).CalcVolume() +
+            ComputeBoundingVolume(mesh, split, end).CalcVolume();
+        if (child_volume < optimal_volume) {
+          optimal_volume = child_volume;
+          optimal_axis = axis;
+          optimal_split = split;
+        }
+      }
+    }
+    // Re-sort by optimal axis.
+    // TODO(tehbelinda): See if making a copy is more efficient than re-sorting.
+    std::sort(start, end,
+              [optimal_axis](const CentroidPair& a, const CentroidPair& b) {
+                return a.second[optimal_axis] < b.second[optimal_axis];
+              });
+
 
     // Continue with the next branches.
-    const typename std::vector<CentroidPair>::iterator mid =
-        start + num_elements / 2;
     return std::make_unique<BvNode<MeshType>>(
-        aabb, BuildBVTree(mesh, start, mid), BuildBVTree(mesh, mid, end));
+        aabb, BuildBVTree(mesh, start, optimal_split),
+        BuildBVTree(mesh, optimal_split, end));
   }
 }
 
