@@ -30,6 +30,18 @@ drake_py_library(
 )
 
 drake_py_binary(
+    name = "acrobot_balancing_lqr",
+    srcs = ["acrobot_balancing_lqr.py"],
+    add_test_rule = 1,
+    visibility = ["//visibility:public"],
+    deps = [
+        ":module_py",
+        "//bindings/pydrake/examples:acrobot_py",
+        "//bindings/pydrake/systems",
+    ],
+)
+
+drake_py_binary(
     name = "cart_pole_passive_simulation",
     srcs = ["cart_pole_passive_simulation.py"],
     add_test_rule = 1,
@@ -82,6 +94,7 @@ drake_py_binary(
 )
 
 PY_LIBRARIES = [
+    ":acrobot_balancing_lqr",
     ":cart_pole_passive_simulation",
     ":pendulum_lqr_monte_carlo_analysis",
     ":run_planar_scenegraph_visualizer",
