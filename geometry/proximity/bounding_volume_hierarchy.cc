@@ -74,7 +74,7 @@ void Aabb::PadBoundary() {
 
 template <class MeshType>
 BoundingVolumeHierarchy<MeshType>::BoundingVolumeHierarchy(
-    const MeshType& mesh) {
+    const MeshType& mesh, bool h) {
   // Generate element indices and corresponding centroids. These are used
   // for calculating the split point of the volumes.
   const int num_elements = mesh.num_elements();
@@ -84,7 +84,7 @@ BoundingVolumeHierarchy<MeshType>::BoundingVolumeHierarchy(
   }
 
   root_node_ =
-      BuildBVTree(mesh, element_centroids.begin(), element_centroids.end());
+      BuildBVTree(mesh, element_centroids.begin(), element_centroids.end(), h);
 }
 
 template <class MeshType>
@@ -92,7 +92,7 @@ std::unique_ptr<BvNode<MeshType>>
 BoundingVolumeHierarchy<MeshType>::BuildBVTree(
     const MeshType& mesh,
     const typename std::vector<CentroidPair>::iterator& start,
-    const typename std::vector<CentroidPair>::iterator& end) {
+    const typename std::vector<CentroidPair>::iterator& end, bool h) {
   // Generate bounding volume.
   Aabb aabb = ComputeBoundingVolume(mesh, start, end);
 
@@ -107,38 +107,50 @@ BoundingVolumeHierarchy<MeshType>::BuildBVTree(
     // cost by summing the volume of the two child bounding volumes formed at
     // each interval. We repeat this for each axis to find the minimum cost
     // across all of them.
-    double optimal_volume = std::numeric_limits<double>::max();
-    double optimal_axis = 0;
-    typename std::vector<CentroidPair>::iterator optimal_split;
-    for (int axis = 0; axis < 3; ++axis) {
-      std::sort(start, end,
-                [axis](const CentroidPair& a, const CentroidPair& b) {
-                  return a.second[axis] < b.second[axis];
-                });
-      for (typename std::vector<CentroidPair>::iterator split = start + 1;
-           split < end; ++split) {
-        const double child_volume =
-            ComputeBoundingVolume(mesh, start, split).CalcVolume() +
-            ComputeBoundingVolume(mesh, split, end).CalcVolume();
-        if (child_volume < optimal_volume) {
-          optimal_volume = child_volume;
-          optimal_axis = axis;
-          optimal_split = split;
-        }
-      }
-    }
-    // Re-sort by optimal axis.
-    // TODO(tehbelinda): See if making a copy is more efficient than re-sorting.
+    int axis{};
+    aabb.half_width().maxCoeff(&axis);
+
+    double optimal_axis = axis;
     std::sort(start, end,
               [optimal_axis](const CentroidPair& a, const CentroidPair& b) {
                 return a.second[optimal_axis] < b.second[optimal_axis];
               });
 
+    typename std::vector<CentroidPair>::iterator optimal_split;
+    if (h) {
+      double optimal_volume = std::numeric_limits<double>::max();
+      // for (int axis = 0; axis < 3; ++axis) {
+        // std::sort(start, end,
+        //           [axis](const CentroidPair& a, const CentroidPair& b) {
+        //             return a.second[axis] < b.second[axis];
+        //           });
+        for (typename std::vector<CentroidPair>::iterator split = start + 1;
+            split < end; ++split) {
+          const double child_volume =
+              ComputeBoundingVolume(mesh, start, split).CalcVolume() +
+              ComputeBoundingVolume(mesh, split, end).CalcVolume();
+          if (child_volume < optimal_volume) {
+            optimal_volume = child_volume;
+            optimal_split = split;
+          }
+        }
+      // }
+      // std::cout << "Optimal split is " << (optimal_split - start)  << " out of " << num_elements << " elements" << std::endl;
+    } else {
+      // int axis{};
+      // aabb.half_width().maxCoeff(&axis);
+      // double optimal_axis = axis;
+      // std::sort(start, end,
+      //           [optimal_axis](const CentroidPair& a, const CentroidPair& b) {
+      //             return a.second[optimal_axis] < b.second[optimal_axis];
+      //           });
+      optimal_split = start + num_elements / 2;
+    }
 
     // Continue with the next branches.
     return std::make_unique<BvNode<MeshType>>(
-        aabb, BuildBVTree(mesh, start, optimal_split),
-        BuildBVTree(mesh, optimal_split, end));
+        aabb, BuildBVTree(mesh, start, optimal_split, h),
+        BuildBVTree(mesh, optimal_split, end, h));
   }
 }
 

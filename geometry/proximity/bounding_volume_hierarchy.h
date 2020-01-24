@@ -198,7 +198,7 @@ class BoundingVolumeHierarchy {
  public:
   using IndexType = typename MeshType::ElementIndex;
 
-  explicit BoundingVolumeHierarchy(const MeshType& mesh);
+  explicit BoundingVolumeHierarchy(const MeshType& mesh, bool h=true);
 
   BoundingVolumeHierarchy(const BoundingVolumeHierarchy& bvh) { *this = bvh; }
 
@@ -285,7 +285,7 @@ class BoundingVolumeHierarchy {
   static std::unique_ptr<BvNode<MeshType>> BuildBVTree(
       const MeshType& mesh,
       const typename std::vector<CentroidPair>::iterator& start,
-      const typename std::vector<CentroidPair>::iterator& end);
+      const typename std::vector<CentroidPair>::iterator& end, bool h);
 
   static Aabb ComputeBoundingVolume(
       const MeshType& mesh,
