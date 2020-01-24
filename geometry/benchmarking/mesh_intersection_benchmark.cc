@@ -208,6 +208,42 @@ BENCHMARK_REGISTER_F(MeshIntersectionBenchmark, WithBVH)
     ->Args({2, 0, 2})   // 2/4 edge length, 0 translation, pi/3 rotation.
     ->Args({2, 1, 1});  // 2/4 edge length, 1 translation, pi/6 rotation.
 
+BENCHMARK_DEFINE_F(MeshIntersectionBenchmark, WithBVHHeuristic)
+// NOLINTNEXTLINE(runtime/references)
+(benchmark::State& state) {
+  const Ellipsoid ellipsoid(2., 3., 4.);
+  auto [edge_length, translation, rotation_factor] = ReadState(state);
+  auto mesh_S = MakeEllipsoidVolumeMesh<double>(ellipsoid, edge_length);
+  auto bvh_S = BoundingVolumeHierarchy<VolumeMesh<double>>(mesh_S, true);
+  auto field_S =
+      MakeEllipsoidPressureField<double>(ellipsoid, &mesh_S, kElasticModulus);
+  auto mesh_R =
+      MakeEllipsoidSurfaceMesh<double>(Ellipsoid(2., 3., 4.), edge_length);
+  auto bvh_R = BoundingVolumeHierarchy<SurfaceMesh<double>>(mesh_R, true);
+  std::unique_ptr<SurfaceMesh<double>> surface_SR;
+  std::unique_ptr<SurfaceMeshFieldLinear<double, double>> e_SR;
+  const auto X_SR = RigidTransformd{
+      RollPitchYawd(M_PI / 3 * rotation_factor, M_PI / 3 * rotation_factor,
+                    M_PI / 3 * rotation_factor),
+      Vector3d{translation, translation, translation}};
+  for (auto _ : state) {
+    SampleVolumeFieldOnSurface(field_S, bvh_S, mesh_R, bvh_R, X_SR, &surface_SR,
+                               &e_SR);
+  }
+}
+BENCHMARK_REGISTER_F(MeshIntersectionBenchmark, WithBVHHeuristic)
+    ->Unit(benchmark::kMillisecond)
+    ->MinTime(2)
+    ->Args({1, 0, 0})   // 1/4 edge length, 0 translation, 0 rotation.
+    ->Args({2, 0, 0})   // 2/4 edge length, 0 translation, 0 rotation.
+    ->Args({3, 0, 0})   // 3/4 edge length, 0 translation, 0 rotation.
+    ->Args({4, 0, 0})   // 4/4 edge length, 0 translation, 0 rotation.
+    ->Args({2, 1, 0})   // 2/4 edge length, 1 translation, 0 rotation.
+    ->Args({2, 2, 0})   // 2/4 edge length, 2 translation, 0 rotation.
+    ->Args({2, 0, 1})   // 2/4 edge length, 0 translation, pi/6 rotation.
+    ->Args({2, 0, 2})   // 2/4 edge length, 0 translation, pi/3 rotation.
+    ->Args({2, 1, 1});  // 2/4 edge length, 1 translation, pi/6 rotation.
+
 }  // namespace internal
 }  // namespace geometry
 }  // namespace drake
