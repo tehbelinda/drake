@@ -26,8 +26,10 @@ using math::RigidTransformd;
 using std::make_unique;
 using std::unique_ptr;
 using std::unordered_map;
+using systems::sensors::Color;
 using systems::sensors::ColorI;
 using systems::sensors::ImageDepth32F;
+using systems::sensors::ImageRgba8U;
 using systems::sensors::InvalidDepth;
 
 // Default camera properties.
@@ -36,7 +38,11 @@ const int kHeight = 480;
 const double kZNear = 0.5;
 const double kZFar = 5.;
 const double kFovY = M_PI_4;
+const bool kShowWindow = true;
 
+// The following tolerance is used due to a precision difference between
+// different operating systems.
+const double kColorPixelTolerance = 1.001;
 // NOTE: The depth tolerance is this large mostly due to the combination of
 // several factors:
 //   - the sphere test (sphere against terrain)
@@ -53,6 +59,16 @@ const double kFovY = M_PI_4;
 // larger (in area) than the default image size.
 const double kDepthTolerance = 2.5e-4;  // meters.
 
+// Provide a default visual color for this tests -- it is intended to be
+// different from the default color of the OpenGL render engine.
+const ColorI kDefaultVisualColor = {229u, 229u, 229u};
+const float kDefaultDistance{3.f};
+
+// Values to be used with the "centered shape" tests.
+// The amount inset from the edge of the images to *still* expect terrain
+// values.
+static constexpr int kInset{10};
+
 // Holds `(x, y)` indices of the screen coordinate system where the ranges of
 // `x` and `y` are [0, image_width) and [0, image_height) respectively.
 struct ScreenCoord {
@@ -66,10 +82,59 @@ std::ostream& operator<<(std::ostream& out, const ScreenCoord& c) {
   return out;
 }
 
+// Utility struct for doing color testing; provides three mechanisms for
+// creating a common rgba color. We get colors from images (as a pointer to
+// unsigned bytes, as a (ColorI, alpha) pair, and from a normalized color. It's
+// nice to articulate tests without having to worry about those details.
+struct RgbaColor {
+  RgbaColor(const Color<int>& c, int alpha)
+      : r(c.r), g(c.g), b(c.b), a(alpha) {}
+  explicit RgbaColor(const uint8_t* p) : r(p[0]), g(p[1]), b(p[2]), a(p[3]) {}
+  explicit RgbaColor(const Vector4d& norm_color)
+      : r(static_cast<int>(norm_color(0) * 255)),
+        g(static_cast<int>(norm_color(1) * 255)),
+        b(static_cast<int>(norm_color(2) * 255)),
+        a(static_cast<int>(norm_color(3) * 255)) {}
+  int r;
+  int g;
+  int b;
+  int a;
+};
+
+std::ostream& operator<<(std::ostream& out, const RgbaColor& c) {
+  out << "(" << c.r << ", " << c.g << ", " << c.b << ", " << c.a << ")";
+  return out;
+}
+
+// Tests color within tolerance.
+bool IsColorNear(const RgbaColor& expected, const RgbaColor& tested,
+                 double tolerance = kColorPixelTolerance) {
+  using std::abs;
+  return (abs(expected.r - tested.r) < tolerance &&
+          abs(expected.g - tested.g) < tolerance &&
+          abs(expected.b - tested.b) < tolerance &&
+          abs(expected.a - tested.a) < tolerance);
+}
+
+// Tests that the color in the given `image` located at screen coordinate `p`
+// matches the `expected` color to within the given `tolerance`.
+::testing::AssertionResult CompareColor(
+    const RgbaColor& expected, const ImageRgba8U& image, const ScreenCoord& p,
+    double tolerance = kColorPixelTolerance) {
+  RgbaColor tested(image.at(p.x, p.y));
+  if (IsColorNear(expected, tested, tolerance)) {
+    return ::testing::AssertionSuccess();
+  }
+  return ::testing::AssertionFailure()
+         << "Expected: " << expected << " at " << p << ", tested: " << tested
+         << " with tolerance: " << tolerance;
+}
+
 class RenderEngineGlTest : public ::testing::Test {
  public:
   RenderEngineGlTest()
-      : depth_(kWidth, kHeight),
+      : color_(kWidth, kHeight),
+        depth_(kWidth, kHeight),
         // Looking straight down from 3m above the ground.
         X_WR_(Translation3d(0, 0, kDefaultDistance) *
               Eigen::AngleAxisd(M_PI, Vector3d::UnitY()) *
@@ -83,11 +148,25 @@ class RenderEngineGlTest : public ::testing::Test {
   // test.
   void Render(RenderEngineGl* renderer = nullptr,
               const DepthCameraProperties* camera_in = nullptr,
+              ImageRgba8U* color_in = nullptr,
               ImageDepth32F* depth_in = nullptr) {
     if (!renderer) renderer = renderer_.get();
     const DepthCameraProperties& camera = camera_in ? *camera_in : camera_;
+    ImageRgba8U* color = color_in ? color_in : &color_;
     ImageDepth32F* depth = depth_in ? depth_in : &depth_;
+    EXPECT_NO_THROW(renderer->RenderColorImage(camera, kShowWindow, color));
     EXPECT_NO_THROW(renderer->RenderDepthImage(camera, depth));
+    sleep(1);
+  }
+
+  // Confirms that all pixels in the member color image have the same value.
+  void VerifyUniformColor(const ColorI& pixel, int alpha) {
+    const RgbaColor test_color{pixel, alpha};
+    for (int y = 0; y < kHeight; ++y) {
+      for (int x = 0; x < kWidth; ++x) {
+        ASSERT_TRUE(CompareColor(test_color, color_, ScreenCoord{x, y}));
+      }
+    }
   }
 
   // Confirms that all pixels in the member depth image have the same value.
@@ -159,14 +238,17 @@ class RenderEngineGlTest : public ::testing::Test {
   // member images will be tested.
   void VerifyOutliers(const RenderEngineGl& renderer,
                       const DepthCameraProperties& camera, const char* name,
+                      ImageRgba8U* color_in = nullptr,
                       ImageDepth32F* depth_in = nullptr) {
+    // ImageRgba8U& color = color_in ? *color_in : color_;
     ImageDepth32F& depth = depth_in ? *depth_in : depth_;
 
     for (const auto& screen_coord : GetOutliers(camera)) {
-      // Depth
+      // EXPECT_TRUE(CompareColor(expected_outlier_color_, color, screen_coord))
+      //     << "Color at: " << screen_coord << " for test: " << name;
       EXPECT_TRUE(IsExpectedDepth(depth, screen_coord, expected_outlier_depth_,
                                   kDepthTolerance))
-          << name;
+          << "Depth at: " << screen_coord << " for test: " << name;
     }
   }
 
@@ -201,7 +283,7 @@ class RenderEngineGlTest : public ::testing::Test {
   // PerformCenterShapeTest().
   void PopulateSphereTest(RenderEngineGl* renderer) {
     Sphere sphere{0.5};
-    renderer->RegisterVisual(geometry_id_, sphere, PerceptionProperties(),
+    renderer->RegisterVisual(geometry_id_, sphere, simple_material(),
                              RigidTransformd::Identity(),
                              true /* needs update */);
     RigidTransformd X_WV{Vector3d{0, 0, 0.5}};
@@ -220,32 +302,32 @@ class RenderEngineGlTest : public ::testing::Test {
     const DepthCameraProperties& cam = camera ? *camera : camera_;
     // Can't use the member images in case the camera has been configured to a
     // different size than the default camera_ configuration.
+    ImageRgba8U color(cam.width, cam.height);
     ImageDepth32F depth(cam.width, cam.height);
-    Render(renderer, &cam, &depth);
+    Render(renderer, &cam, &color, &depth);
 
-    VerifyOutliers(*renderer, cam, name, &depth);
+    VerifyOutliers(*renderer, cam, name, &color, &depth);
 
     // Verifies inside the sphere.
     const ScreenCoord inlier = GetInlier(cam);
+
+    EXPECT_TRUE(CompareColor(expected_color_, color, inlier))
+        << "Color at: " << inlier << " for test: " << name;
     EXPECT_TRUE(
         IsExpectedDepth(depth, inlier, expected_object_depth_, kDepthTolerance))
-        << name;
+        << "Depth at: " << inlier << " for test: " << name;
   }
 
-  // Provide a default visual color for this tests -- it is intended to be
-  // different from the default color of the VTK render engine.
-  const ColorI kDefaultVisualColor = {229u, 229u, 229u};
-  const float kDefaultDistance{3.f};
-
-  // Values to be used with the "centered shape" tests.
-  // The amount inset from the edge of the images to *still* expect terrain
-  // values.
-  static constexpr int kInset{10};
+  RgbaColor expected_color_{kDefaultVisualColor, 255};
+  RgbaColor expected_outlier_color_{kDefaultVisualColor, 255};
   float expected_outlier_depth_{3.f};
   float expected_object_depth_{2.f};
+  RgbaColor default_color_{kDefaultVisualColor, 255};
 
   const DepthCameraProperties camera_ = {kWidth, kHeight, kFovY,
                                          "n/a",  kZNear,  kZFar};
+
+  ImageRgba8U color_;
   ImageDepth32F depth_;
   RigidTransformd X_WR_;
   GeometryId geometry_id_;

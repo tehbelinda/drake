@@ -41,12 +41,14 @@ struct OpenGlGeometry {
 struct OpenGlInstance {
   OpenGlInstance(const OpenGlGeometry& g_in,
                  const math::RigidTransformd& pose_in,
-                 const Vector3<double>& scale_in)
-      : geometry(g_in), X_WG(pose_in), scale(scale_in) {}
+                 const Vector3<double>& scale_in,
+                 const Vector4<double>& diffuse_in)
+      : geometry(g_in), X_WG(pose_in), scale(scale_in), diffuse(diffuse_in) {}
   OpenGlGeometry geometry;
   math::RigidTransformd X_WG;
   // The scale factors providing the basis for non-unit geometry.
   Vector3<double> scale;
+  Vector4<double> diffuse;
 };
 
 }  // namespace gl
