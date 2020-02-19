@@ -198,7 +198,7 @@ class BoundingVolumeHierarchy {
  public:
   using IndexType = typename MeshType::ElementIndex;
 
-  explicit BoundingVolumeHierarchy(const MeshType& mesh, bool h=true);
+  explicit BoundingVolumeHierarchy(const MeshType& mesh, bool h = true);
 
   BoundingVolumeHierarchy(const BoundingVolumeHierarchy& bvh) { *this = bvh; }
 
@@ -224,13 +224,15 @@ class BoundingVolumeHierarchy {
         std::pair<const BvNode<MeshType>&, const BvNode<OtherMeshType>&>;
     std::stack<NodePair, std::vector<NodePair>> node_pairs;
     node_pairs.emplace(root_node(), bvh.root_node());
-
+    int culled = 0;
+    int collided = 0;
     while (!node_pairs.empty()) {
       const auto& [node_a, node_b] = node_pairs.top();
       node_pairs.pop();
 
       // Check if the bounding volumes overlap.
       if (!Aabb::HasOverlap(node_a.aabb(), node_b.aabb(), X_AB)) {
+        ++culled;
         continue;
       }
 
@@ -252,7 +254,9 @@ class BoundingVolumeHierarchy {
         node_pairs.emplace(node_a.left(), node_b.right());
         node_pairs.emplace(node_a.right(), node_b.right());
       }
+      ++collided;
     }
+    std::cout << "Culled " << culled << " collided " << collided << std::endl;
   }
 
   /** Wrapper around `Collide` with a callback that accumulates each pair of

@@ -107,44 +107,66 @@ BoundingVolumeHierarchy<MeshType>::BuildBVTree(
     // cost by summing the volume of the two child bounding volumes formed at
     // each interval. We repeat this for each axis to find the minimum cost
     // across all of them.
-    int axis{};
-    aabb.half_width().maxCoeff(&axis);
+    // int axis{};
+    // aabb.half_width().maxCoeff(&axis);
 
-    double optimal_axis = axis;
-    std::sort(start, end,
-              [optimal_axis](const CentroidPair& a, const CentroidPair& b) {
-                return a.second[optimal_axis] < b.second[optimal_axis];
-              });
+    // double optimal_axis = axis;
+    // std::sort(start, end,
+    //           [optimal_axis](const CentroidPair& a, const CentroidPair& b) {
+    //             return a.second[optimal_axis] < b.second[optimal_axis];
+    //           });
 
     typename std::vector<CentroidPair>::iterator optimal_split;
     if (h) {
+      double optimal_axis = 0;
+
       double optimal_volume = std::numeric_limits<double>::max();
-      // for (int axis = 0; axis < 3; ++axis) {
-        // std::sort(start, end,
-        //           [axis](const CentroidPair& a, const CentroidPair& b) {
-        //             return a.second[axis] < b.second[axis];
-        //           });
+      for (int axis = 0; axis < 3; ++axis) {
+        std::sort(start, end,
+                  [axis](const CentroidPair& a, const CentroidPair& b) {
+                    return a.second[axis] < b.second[axis];
+                  });
         for (typename std::vector<CentroidPair>::iterator split = start + 1;
             split < end; ++split) {
           const double child_volume =
               ComputeBoundingVolume(mesh, start, split).CalcVolume() +
               ComputeBoundingVolume(mesh, split, end).CalcVolume();
+              if (num_elements > 400) {
+          std::cout << "Comparing volumes " << child_volume << " "
+                    << optimal_volume << " at " << (split - start) << std::endl;
+              }
           if (child_volume < optimal_volume) {
+            optimal_axis = axis;
             optimal_volume = child_volume;
             optimal_split = split;
           }
         }
-      // }
-      // std::cout << "Optimal split is " << (optimal_split - start)  << " out of " << num_elements << " elements" << std::endl;
+      }
+      std::cout << "Optimal volume " << optimal_volume << " over num elements "
+                << num_elements << " split at " << (optimal_split - start)<< std::endl;
+      if (optimal_axis != 2) {
+        std::sort(start, end,
+                  [optimal_axis](const CentroidPair& a, const CentroidPair& b) {
+                    return a.second[optimal_axis] < b.second[optimal_axis];
+                  });
+      }
+      // std::cout << "Optimal split is " << (optimal_split - start)  <<
+      // " out of " << num_elements << " elements" << std::endl;
     } else {
-      // int axis{};
-      // aabb.half_width().maxCoeff(&axis);
-      // double optimal_axis = axis;
-      // std::sort(start, end,
-      //           [optimal_axis](const CentroidPair& a, const CentroidPair& b) {
-      //             return a.second[optimal_axis] < b.second[optimal_axis];
-      //           });
+      int axis{};
+      aabb.half_width().maxCoeff(&axis);
+      double optimal_axis = axis;
+      std::sort(start, end,
+              [optimal_axis](const CentroidPair& a, const CentroidPair& b) {
+                return a.second[optimal_axis] < b.second[optimal_axis];
+              });
       optimal_split = start + num_elements / 2;
+      const double test_volume =
+          ComputeBoundingVolume(mesh, start, optimal_split).CalcVolume() +
+          ComputeBoundingVolume(mesh, optimal_split, end).CalcVolume();
+      std::cout << "Volume " << test_volume << " over num elements "
+                << num_elements << " split at " << (optimal_split - start)
+                << std::endl;
     }
 
     // Continue with the next branches.

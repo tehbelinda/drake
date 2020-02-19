@@ -185,6 +185,7 @@ Resulting contact surface sizes:
 using Eigen::AngleAxis;
 using Eigen::Vector3d;
 using math::RigidTransformd;
+using math::RollPitchYawd;
 
 const double kElasticModulus = 1.0e5;
 const double kMaxRotationFactor = 3.;
@@ -305,8 +306,8 @@ BENCHMARK_DEFINE_F(MeshIntersectionBenchmark, ___WithBVH)
 // NOLINTNEXTLINE(runtime/references)
 (benchmark::State& state) {
   SetupMeshes(state);
-  const auto bvh_S = BoundingVolumeHierarchy<VolumeMesh<double>>(mesh_S_);
-  const auto bvh_R = BoundingVolumeHierarchy<SurfaceMesh<double>>(mesh_R_);
+  const auto bvh_S = BoundingVolumeHierarchy<VolumeMesh<double>>(mesh_S_, false);
+  const auto bvh_R = BoundingVolumeHierarchy<SurfaceMesh<double>>(mesh_R_, false);
   std::unique_ptr<SurfaceMesh<double>> surface_SR;
   std::unique_ptr<SurfaceMeshFieldLinear<double, double>> e_SR;
   for (auto _ : state) {
@@ -343,44 +344,78 @@ void ReportContactSurfaces() {
 BENCHMARK_DEFINE_F(MeshIntersectionBenchmark, WithBVHHeuristic)
 // NOLINTNEXTLINE(runtime/references)
 (benchmark::State& state) {
-  const Ellipsoid ellipsoid(2., 3., 4.);
-  auto [edge_length, translation, rotation_factor] = ReadState(state);
-  auto mesh_S = MakeEllipsoidVolumeMesh<double>(ellipsoid, edge_length);
-  auto bvh_S = BoundingVolumeHierarchy<VolumeMesh<double>>(mesh_S, true);
-  auto field_S =
-      MakeEllipsoidPressureField<double>(ellipsoid, &mesh_S, kElasticModulus);
-  auto mesh_R =
-      MakeEllipsoidSurfaceMesh<double>(Ellipsoid(2., 3., 4.), edge_length);
-  auto bvh_R = BoundingVolumeHierarchy<SurfaceMesh<double>>(mesh_R, true);
+  SetupMeshes(state);
+  const auto bvh_S = BoundingVolumeHierarchy<VolumeMesh<double>>(mesh_S_, true);
+  const auto bvh_R = BoundingVolumeHierarchy<SurfaceMesh<double>>(mesh_R_, true);
   std::unique_ptr<SurfaceMesh<double>> surface_SR;
   std::unique_ptr<SurfaceMeshFieldLinear<double, double>> e_SR;
-  const auto X_SR = RigidTransformd{
-      RollPitchYawd(M_PI / 3 * rotation_factor, M_PI / 3 * rotation_factor,
-                    M_PI / 3 * rotation_factor),
-      Vector3d{translation, translation, translation}};
   for (auto _ : state) {
-    SampleVolumeFieldOnSurface(field_S, bvh_S, mesh_R, bvh_R, X_SR, &surface_SR,
-                               &e_SR);
+    SampleVolumeFieldOnSurface(field_S_, bvh_S, mesh_R_, bvh_R, X_SR_,
+                               &surface_SR, &e_SR);
   }
+  RecordContactSurfaceResult(surface_SR.get(), "WithBVHHeuristic", state);
 }
 BENCHMARK_REGISTER_F(MeshIntersectionBenchmark, WithBVHHeuristic)
     ->Unit(benchmark::kMillisecond)
     ->MinTime(2)
-    ->Args({1, 0, 0})   // 1/4 edge length, 0 translation, 0 rotation.
-    ->Args({2, 0, 0})   // 2/4 edge length, 0 translation, 0 rotation.
-    ->Args({3, 0, 0})   // 3/4 edge length, 0 translation, 0 rotation.
-    ->Args({4, 0, 0})   // 4/4 edge length, 0 translation, 0 rotation.
-    ->Args({2, 1, 0})   // 2/4 edge length, 1 translation, 0 rotation.
-    ->Args({2, 2, 0})   // 2/4 edge length, 2 translation, 0 rotation.
-    ->Args({2, 0, 1})   // 2/4 edge length, 0 translation, pi/6 rotation.
-    ->Args({2, 0, 2})   // 2/4 edge length, 0 translation, pi/3 rotation.
-    ->Args({2, 1, 1});  // 2/4 edge length, 1 translation, pi/6 rotation.
+    ->Args({0, 4, 0})   // 0 resolution, 4 contact overlap, 0 rotation factor.
+    ->Args({1, 4, 0})   // 1 resolution, 4 contact overlap, 0 rotation factor.
+    ->Args({2, 4, 0})   // 2 resolution, 4 contact overlap, 0 rotation factor.
+    ->Args({3, 4, 0})   // 3 resolution, 4 contact overlap, 0 rotation factor.
+    ->Args({2, 0, 0})   // 2 resolution, 0 contact overlap, 0 rotation factor.
+    ->Args({2, 1, 0})   // 2 resolution, 1 contact overlap, 0 rotation factor.
+    ->Args({2, 2, 0})   // 2 resolution, 2 contact overlap, 0 rotation factor.
+    ->Args({2, 3, 0})   // 2 resolution, 3 contact overlap, 0 rotation factor.
+    ->Args({2, 4, 1})   // 2 resolution, 4 contact overlap, 1 rotation factor.
+    ->Args({2, 4, 2})   // 2 resolution, 4 contact overlap, 2 rotation factor.
+    ->Args({2, 4, 3})   // 2 resolution, 4 contact overlap, 3 rotation factor.
+    ->Args({2, 3, 1})   // 2 resolution, 3 contact overlap, 1 rotation factor.
+    ->Args({2, 2, 2});  // 2 resolution, 2 contact overlap, 2 rotation factor.
+
+void QuickTest() {
+  Ellipsoid ellipsoid{3.01, 3.5, 4.};
+  auto mesh_S = MakeEllipsoidVolumeMesh<double>(ellipsoid, 2);
+  auto field_S =
+      MakeEllipsoidPressureField<double>(ellipsoid, &mesh_S, kElasticModulus);
+  Sphere sphere{3};
+  auto mesh_R = MakeSphereSurfaceMesh<double>(sphere, 2);
+  auto X_SR = RigidTransformd{AngleAxis(0 / kMaxRotationFactor * M_PI / 4,
+                                        Vector3d{1, 1, 1}.normalized()),
+                              kContactOverlapTranslation[3]};
+
+  std::unique_ptr<SurfaceMesh<double>> surface_SR;
+  std::unique_ptr<SurfaceMeshFieldLinear<double, double>> e_SR;
+
+  std::cout << "__ Median Split __" << std::endl;
+  const auto bvh_S = BoundingVolumeHierarchy<VolumeMesh<double>>(mesh_S, false);
+  const auto bvh_R =
+      BoundingVolumeHierarchy<SurfaceMesh<double>>(mesh_R, false);
+  auto num_candidates = bvh_S.GetCollisionCandidates(bvh_R, X_SR).size();
+  std::cout << "collision candidates " << num_candidates << std::endl;
+  SampleVolumeFieldOnSurface(field_S, bvh_S, mesh_R, bvh_R, X_SR, &surface_SR,
+                             &e_SR);
+  std::cout << "contact surface elements " << surface_SR->num_elements() << std::endl;
+
+  std::cout << "__ Volume Heuristic __" << std::endl;
+  const auto bvh_S_h =
+      BoundingVolumeHierarchy<VolumeMesh<double>>(mesh_S, true);
+  const auto bvh_R_h =
+      BoundingVolumeHierarchy<SurfaceMesh<double>>(mesh_R, true);
+  num_candidates = bvh_S_h.GetCollisionCandidates(bvh_R_h, X_SR).size();
+  std::cout << "collision candidates " << num_candidates << std::endl;
+  SampleVolumeFieldOnSurface(field_S, bvh_S_h, mesh_R, bvh_R_h, X_SR,
+                             &surface_SR, &e_SR);
+  std::cout << "contact surface elements " << surface_SR->num_elements()
+            << std::endl;
+}
 
 }  // namespace internal
 }  // namespace geometry
 }  // namespace drake
 
 int main(int argc, char** argv) {
+  // drake::geometry::internal::QuickTest();
+
   benchmark::Initialize(&argc, argv);
   benchmark::RunSpecifiedBenchmarks();
   drake::geometry::internal::ReportContactSurfaces();
