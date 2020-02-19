@@ -374,11 +374,11 @@ BENCHMARK_REGISTER_F(MeshIntersectionBenchmark, WithBVHHeuristic)
 
 void QuickTest() {
   Ellipsoid ellipsoid{3.01, 3.5, 4.};
-  auto mesh_S = MakeEllipsoidVolumeMesh<double>(ellipsoid, 2);
+  auto mesh_S = MakeEllipsoidVolumeMesh<double>(ellipsoid, 1);
   auto field_S =
       MakeEllipsoidPressureField<double>(ellipsoid, &mesh_S, kElasticModulus);
   Sphere sphere{3};
-  auto mesh_R = MakeSphereSurfaceMesh<double>(sphere, 2);
+  auto mesh_R = MakeSphereSurfaceMesh<double>(sphere, 1);
   auto X_SR = RigidTransformd{AngleAxis(0 / kMaxRotationFactor * M_PI / 4,
                                         Vector3d{1, 1, 1}.normalized()),
                               kContactOverlapTranslation[3]};
@@ -387,7 +387,9 @@ void QuickTest() {
   std::unique_ptr<SurfaceMeshFieldLinear<double, double>> e_SR;
 
   std::cout << "__ Median Split __" << std::endl;
+  std::cout << "Ellipsoid" << std::endl;
   const auto bvh_S = BoundingVolumeHierarchy<VolumeMesh<double>>(mesh_S, false);
+  std::cout << "Sphere" << std::endl;
   const auto bvh_R =
       BoundingVolumeHierarchy<SurfaceMesh<double>>(mesh_R, false);
   auto num_candidates = bvh_S.GetCollisionCandidates(bvh_R, X_SR).size();
@@ -397,8 +399,10 @@ void QuickTest() {
   std::cout << "contact surface elements " << surface_SR->num_elements() << std::endl;
 
   std::cout << "__ Volume Heuristic __" << std::endl;
+  std::cout << "Ellipsoid" << std::endl;
   const auto bvh_S_h =
       BoundingVolumeHierarchy<VolumeMesh<double>>(mesh_S, true);
+  std::cout << "Sphere" << std::endl;
   const auto bvh_R_h =
       BoundingVolumeHierarchy<SurfaceMesh<double>>(mesh_R, true);
   num_candidates = bvh_S_h.GetCollisionCandidates(bvh_R_h, X_SR).size();
@@ -414,9 +418,9 @@ void QuickTest() {
 }  // namespace drake
 
 int main(int argc, char** argv) {
-  // drake::geometry::internal::QuickTest();
+  drake::geometry::internal::QuickTest();
 
-  benchmark::Initialize(&argc, argv);
-  benchmark::RunSpecifiedBenchmarks();
-  drake::geometry::internal::ReportContactSurfaces();
+  // benchmark::Initialize(&argc, argv);
+  // benchmark::RunSpecifiedBenchmarks();
+  // drake::geometry::internal::ReportContactSurfaces();
 }

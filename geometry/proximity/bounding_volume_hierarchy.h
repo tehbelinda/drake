@@ -36,7 +36,7 @@ class Aabb {
     DRAKE_DEMAND(half_width.y() >= 0.0);
     DRAKE_DEMAND(half_width.z() >= 0.0);
 
-    PadBoundary();
+    // PadBoundary();
   }
 
   /** Returns the center. */
@@ -256,7 +256,7 @@ class BoundingVolumeHierarchy {
       }
       ++collided;
     }
-    std::cout << "Culled " << culled << " collided " << collided << std::endl;
+    // std::cout << "Culled " << culled << " collided " << collided << std::endl;
   }
 
   /** Wrapper around `Collide` with a callback that accumulates each pair of

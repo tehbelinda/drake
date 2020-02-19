@@ -122,19 +122,72 @@ BoundingVolumeHierarchy<MeshType>::BuildBVTree(
 
       double optimal_volume = std::numeric_limits<double>::max();
       for (int axis = 0; axis < 3; ++axis) {
-        std::sort(start, end,
-                  [axis](const CentroidPair& a, const CentroidPair& b) {
-                    return a.second[axis] < b.second[axis];
-                  });
+        std::sort(
+            start, end, [axis](const CentroidPair& a, const CentroidPair& b) {
+              // if (a.second[(axis + 1) % 3] == b.second[(axis + 1) % 3]) { // FIX order
+              //   return a.second[(axis + 2) % 3] < b.second[(axis + 2) % 3];
+              // } else
+              //   if (a.second[axis] == b.second[axis]) {
+              //     return a.second[(axis + 1) % 3] < b.second[(axis + 1) % 3];
+              //   } else {
+                  return a.second[axis] < b.second[axis];
+                // }
+            });
+        if (num_elements == 512) {
+          std::cout << "Axis " << axis << std::endl;
+          int num_before = 0;
+          int num_both = 0;
+          int num_after = 0;
+          for (typename std::vector<CentroidPair>::iterator cur = start;
+               cur < end; ++cur) {
+            auto box = ComputeBoundingVolume(mesh, cur, cur + 1);
+            if (box.upper()[axis] < -1) {
+              ++num_before;
+            } else if (box.lower()[axis] > -1) {
+              ++num_after;
+            } else {
+              ++num_both;
+            }
+          }
+          std::cout << " Elements along axis " << num_before << " " << num_both
+                    << " " << num_after << std::endl;
+        }
         for (typename std::vector<CentroidPair>::iterator split = start + 1;
             split < end; ++split) {
+          auto a = ComputeBoundingVolume(mesh, start, split);
+          auto b = ComputeBoundingVolume(mesh, split, end);
           const double child_volume =
               ComputeBoundingVolume(mesh, start, split).CalcVolume() +
               ComputeBoundingVolume(mesh, split, end).CalcVolume();
-              if (num_elements > 400) {
-          std::cout << "Comparing volumes " << child_volume << " "
-                    << optimal_volume << " at " << (split - start) << std::endl;
-              }
+          if (num_elements == 512 && (split - start) < 150) {
+            std::cout << "Comparing volumes at " << (split - start) << std::endl;
+            std::cout << "L : " << a.lower().transpose()
+                      << " U: " << a.upper().transpose()
+                      << " vol: " << a.CalcVolume() << std::endl;
+            std::cout << "L: " << b.lower().transpose()
+                      << " U: " << b.upper().transpose()
+                      << " vol: " << b.CalcVolume() << std::endl;
+            std::cout << "Centroid " << split->second.transpose() << std::endl;
+            std::cout << "Total " << child_volume << ". best:" << optimal_volume << std::endl;
+            // const auto& ele = mesh.element(split->first);
+            // Check each vertex in the element.
+            // Vector3<double> max_bounds, min_bounds;
+            // max_bounds.setConstant(std::numeric_limits<double>::lowest());
+            // min_bounds.setConstant(std::numeric_limits<double>::max());
+
+            // for (int v = 0; v < 3; ++v) {
+            //   const auto& vertex = mesh.vertex(ele.vertex(v)).r_MV();
+            //   std::cout << "Vertices " << vertex.transpose() << std::endl;
+            //   min_bounds = min_bounds.cwiseMin(vertex);
+            //   max_bounds = max_bounds.cwiseMax(vertex);
+            // }
+            // auto center = (min_bounds + max_bounds) / 2;
+            // auto half_width = max_bounds - center;
+            // std::cout << "Min " << min_bounds.transpose() << " max "
+            //           << max_bounds.transpose() << " center " << center
+            //           << " halfwidth " << half_width << std::endl;
+            //           std::cout << " from box says " <<
+          }
           if (child_volume < optimal_volume) {
             optimal_axis = axis;
             optimal_volume = child_volume;
@@ -142,8 +195,8 @@ BoundingVolumeHierarchy<MeshType>::BuildBVTree(
           }
         }
       }
-      std::cout << "Optimal volume " << optimal_volume << " over num elements "
-                << num_elements << " split at " << (optimal_split - start)<< std::endl;
+      // std::cout << "Optimal volume " << optimal_volume << " over num elements "
+      //           << num_elements << " split at " << (optimal_split - start) << " along axis " << optimal_axis << std::endl;
       if (optimal_axis != 2) {
         std::sort(start, end,
                   [optimal_axis](const CentroidPair& a, const CentroidPair& b) {
@@ -165,8 +218,7 @@ BoundingVolumeHierarchy<MeshType>::BuildBVTree(
           ComputeBoundingVolume(mesh, start, optimal_split).CalcVolume() +
           ComputeBoundingVolume(mesh, optimal_split, end).CalcVolume();
       std::cout << "Volume " << test_volume << " over num elements "
-                << num_elements << " split at " << (optimal_split - start)
-                << std::endl;
+                << num_elements << std::endl;
     }
 
     // Continue with the next branches.
