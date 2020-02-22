@@ -118,21 +118,55 @@ BoundingVolumeHierarchy<MeshType>::BuildBVTree(
 
     typename std::vector<CentroidPair>::iterator optimal_split;
     if (h) {
-      double optimal_axis = 0;
+      int optimal_axis = 0;
 
       double optimal_volume = std::numeric_limits<double>::max();
       for (int axis = 0; axis < 3; ++axis) {
-        std::sort(
-            start, end, [axis](const CentroidPair& a, const CentroidPair& b) {
-              // if (a.second[(axis + 1) % 3] == b.second[(axis + 1) % 3]) { // FIX order
-              //   return a.second[(axis + 2) % 3] < b.second[(axis + 2) % 3];
-              // } else
-              //   if (a.second[axis] == b.second[axis]) {
-              //     return a.second[(axis + 1) % 3] < b.second[(axis + 1) % 3];
-              //   } else {
-                  return a.second[axis] < b.second[axis];
-                // }
-            });
+        std::sort(start, end,
+                  [axis, mesh](const CentroidPair& a, const CentroidPair& b) {
+                    return a.second[axis] < b.second[axis];
+                    // const auto& element_a = mesh.element(a.first);
+                    // const auto& element_b= mesh.element(b.first);
+                    // Vector3<double> max_a, min_a, max_b, min_b;
+                    // max_a.setConstant(std::numeric_limits<double>::lowest());
+                    // min_a.setConstant(std::numeric_limits<double>::max());
+                    // max_b.setConstant(std::numeric_limits<double>::lowest());
+                    // min_b.setConstant(std::numeric_limits<double>::max());
+                    // // Check each vertex in the element.
+                    // for (int v = 0; v < kElementVertexCount; ++v) {
+                    //   const auto& vertex_a =
+                    //   mesh.vertex(element_a.vertex(v)).r_MV();
+                    //   // Compare its extent along each of the 3 axes.
+                    //   min_a = min_a.cwiseMin(vertex_a);
+                    //   max_a = max_a.cwiseMax(vertex_a);
+                    //   const auto& vertex_b =
+                    //   mesh.vertex(element_b.vertex(v)).r_MV();
+                    //   // Compare its extent along each of the 3 axes.
+                    //   min_b = min_b.cwiseMin(vertex_b);
+                    //   max_b = max_b.cwiseMax(vertex_b);
+                    // }
+                    // Vector3<double> center_a = (min_a + max_a) / 2;
+                    // Vector3<double> center_b = (min_b + max_b) / 2;
+                    // if (max_a[axis] < min_b[axis]) {
+                    //   return true;
+                    // } else if (min_a[axis] > max_b[axis]) {
+                    //   return false;
+                    // } else if (max_a[axis] < max_b[axis]) {
+                    //   return true;
+                    // } else if (max_a[axis] > max_b[axis]) {
+                    //   return false;
+                    // } else if (center_a[(axis + 1) % 3] < center_b[(axis + 1)
+                    // % 3]) {
+                    //   return true;
+                    // } else if (center_a[(axis + 1) % 3] > center_b[(axis + 1)
+                    // % 3]) {
+                    //   return false;
+                    // } else {
+                    //   return center_a[(axis + 2) % 3] < center_b[(axis + 2) %
+                    //   3];
+                    // }
+                  });
+
         if (num_elements == 512) {
           std::cout << "Axis " << axis << std::endl;
           int num_before = 0;
@@ -152,6 +186,7 @@ BoundingVolumeHierarchy<MeshType>::BuildBVTree(
           std::cout << " Elements along axis " << num_before << " " << num_both
                     << " " << num_after << std::endl;
         }
+
         for (typename std::vector<CentroidPair>::iterator split = start + 1;
             split < end; ++split) {
           auto a = ComputeBoundingVolume(mesh, start, split);
@@ -159,35 +194,44 @@ BoundingVolumeHierarchy<MeshType>::BuildBVTree(
           const double child_volume =
               ComputeBoundingVolume(mesh, start, split).CalcVolume() +
               ComputeBoundingVolume(mesh, split, end).CalcVolume();
-          if (num_elements == 512 && (split - start) < 150) {
-            std::cout << "Comparing volumes at " << (split - start) << std::endl;
-            std::cout << "L : " << a.lower().transpose()
-                      << " U: " << a.upper().transpose()
-                      << " vol: " << a.CalcVolume() << std::endl;
-            std::cout << "L: " << b.lower().transpose()
-                      << " U: " << b.upper().transpose()
-                      << " vol: " << b.CalcVolume() << std::endl;
-            std::cout << "Centroid " << split->second.transpose() << std::endl;
-            std::cout << "Total " << child_volume << ". best:" << optimal_volume << std::endl;
-            // const auto& ele = mesh.element(split->first);
-            // Check each vertex in the element.
-            // Vector3<double> max_bounds, min_bounds;
-            // max_bounds.setConstant(std::numeric_limits<double>::lowest());
-            // min_bounds.setConstant(std::numeric_limits<double>::max());
 
-            // for (int v = 0; v < 3; ++v) {
-            //   const auto& vertex = mesh.vertex(ele.vertex(v)).r_MV();
-            //   std::cout << "Vertices " << vertex.transpose() << std::endl;
-            //   min_bounds = min_bounds.cwiseMin(vertex);
-            //   max_bounds = max_bounds.cwiseMax(vertex);
-            // }
-            // auto center = (min_bounds + max_bounds) / 2;
-            // auto half_width = max_bounds - center;
-            // std::cout << "Min " << min_bounds.transpose() << " max "
-            //           << max_bounds.transpose() << " center " << center
-            //           << " halfwidth " << half_width << std::endl;
-            //           std::cout << " from box says " <<
+          if (axis == 0 && num_elements == 512 &&
+              ((split - start) == 1 || (split - start) == 55 ||
+               (split - start) == 56 || (split - start) == 57 ||
+               (split - start) == 143 || (split - start) == 144 ||
+               (split - start) == 145)) {
+            std::cout << std::endl;
+            std::cout << "Comparing volumes at " << (split - start)
+                      << std::endl;
+            std::cout << "L : " << a.lower().transpose()
+                      << " U: " << a.upper().transpose() << " to "
+                      << "L: " << b.lower().transpose()
+                      << " U: " << b.upper().transpose() << std::endl;
+            std::cout << "A vol: " << a.CalcVolume()
+                      << " + B vol: " << b.CalcVolume() << " = " << child_volume
+                      << ". Best:" << optimal_volume << std::endl;
+
+
+            const auto& ele = mesh.element(split->first);
+            Vector3<double> max_bounds, min_bounds;
+            max_bounds.setConstant(std::numeric_limits<double>::lowest());
+            min_bounds.setConstant(std::numeric_limits<double>::max());
+
+            for (int v = 0; v < 3; ++v) {
+              const auto& vertex = mesh.vertex(ele.vertex(v)).r_MV();
+              std::cout << "  Vertices " << vertex.transpose() << std::endl;
+              min_bounds = min_bounds.cwiseMin(vertex);
+              max_bounds = max_bounds.cwiseMax(vertex);
+            }
+            std::cout << "Centroid " << split->second.transpose() << std::endl;
+            auto center = (min_bounds + max_bounds) / 2;
+            auto half_width = max_bounds - center;
+            std::cout << "Min " << min_bounds.transpose() << " max "
+                      << max_bounds.transpose() << std::endl;
+            std::cout << "Center " << center.transpose()
+                      << " Halfwidth " << half_width.transpose() << std::endl;
           }
+
           if (child_volume < optimal_volume) {
             optimal_axis = axis;
             optimal_volume = child_volume;
@@ -197,12 +241,46 @@ BoundingVolumeHierarchy<MeshType>::BuildBVTree(
       }
       // std::cout << "Optimal volume " << optimal_volume << " over num elements "
       //           << num_elements << " split at " << (optimal_split - start) << " along axis " << optimal_axis << std::endl;
-      if (optimal_axis != 2) {
-        std::sort(start, end,
-                  [optimal_axis](const CentroidPair& a, const CentroidPair& b) {
-                    return a.second[optimal_axis] < b.second[optimal_axis];
-                  });
-      }
+      // if (optimal_axis != 2) {
+      //   std::sort(
+      //       start, end, [optimal_axis, mesh](const CentroidPair& a, const CentroidPair& b) {
+      //         const auto& element_a = mesh.element(a.first);
+      //         const auto& element_b = mesh.element(b.first);
+      //         Vector3<double> max_a, min_a, max_b, min_b;
+      //         max_a.setConstant(std::numeric_limits<double>::lowest());
+      //         min_a.setConstant(std::numeric_limits<double>::max());
+      //         max_b.setConstant(std::numeric_limits<double>::lowest());
+      //         min_b.setConstant(std::numeric_limits<double>::max());
+      //         // Check each vertex in the element.
+      //         for (int v = 0; v < kElementVertexCount; ++v) {
+      //           const auto& vertex_a = mesh.vertex(element_a.vertex(v)).r_MV();
+      //           // Compare its extent along each of the 3 axes.
+      //           min_a = min_a.cwiseMin(vertex_a);
+      //           max_a = max_a.cwiseMax(vertex_a);
+      //           const auto& vertex_b = mesh.vertex(element_b.vertex(v)).r_MV();
+      //           // Compare its extent along each of the 3 axes.
+      //           min_b = min_b.cwiseMin(vertex_b);
+      //           max_b = max_b.cwiseMax(vertex_b);
+      //         }
+      //         Vector3<double> center_a = (min_a + max_a) / 2;
+      //         Vector3<double> center_b = (min_b + max_b) / 2;
+      //         if (max_a[optimal_axis] < min_b[optimal_axis]) {
+      //           return true;
+      //         } else if (min_a[optimal_axis] > max_b[optimal_axis]) {
+      //           return false;
+      //         } else if (max_a[optimal_axis] < max_b[optimal_axis]) {
+      //           return true;
+      //         } else if (max_a[optimal_axis] > max_b[optimal_axis]) {
+      //           return false;
+      //         } else if (center_a[(optimal_axis + 1) % 3] < center_b[(optimal_axis + 1) % 3]) {
+      //           return true;
+      //         } else if (center_a[(optimal_axis + 1) % 3] > center_b[(optimal_axis + 1) % 3]) {
+      //           return false;
+      //         } else {
+      //           return center_a[(optimal_axis + 2) % 3] < center_b[(optimal_axis + 2) % 3];
+      //         }
+      //       });
+      // }
       // std::cout << "Optimal split is " << (optimal_split - start)  <<
       // " out of " << num_elements << " elements" << std::endl;
     } else {

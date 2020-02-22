@@ -5,6 +5,7 @@
 #include "drake/geometry/proximity/make_ellipsoid_mesh.h"
 #include "drake/geometry/proximity/make_sphere_mesh.h"
 #include "drake/geometry/proximity/mesh_intersection.h"
+#include "drake/geometry/proximity/mesh_to_vtk.h"
 #include "drake/math/rigid_transform.h"
 
 namespace drake {
@@ -379,38 +380,40 @@ void QuickTest() {
       MakeEllipsoidPressureField<double>(ellipsoid, &mesh_S, kElasticModulus);
   Sphere sphere{3};
   auto mesh_R = MakeSphereSurfaceMesh<double>(sphere, 1);
+  WriteSurfaceMeshToVtk("/home/belindateh/sphere.vtk", mesh_R, "Sphere");
   auto X_SR = RigidTransformd{AngleAxis(0 / kMaxRotationFactor * M_PI / 4,
                                         Vector3d{1, 1, 1}.normalized()),
-                              kContactOverlapTranslation[3]};
+                              kContactOverlapTranslation[4]};
 
   std::unique_ptr<SurfaceMesh<double>> surface_SR;
   std::unique_ptr<SurfaceMeshFieldLinear<double, double>> e_SR;
 
-  std::cout << "__ Median Split __" << std::endl;
-  std::cout << "Ellipsoid" << std::endl;
-  const auto bvh_S = BoundingVolumeHierarchy<VolumeMesh<double>>(mesh_S, false);
-  std::cout << "Sphere" << std::endl;
-  const auto bvh_R =
-      BoundingVolumeHierarchy<SurfaceMesh<double>>(mesh_R, false);
-  auto num_candidates = bvh_S.GetCollisionCandidates(bvh_R, X_SR).size();
-  std::cout << "collision candidates " << num_candidates << std::endl;
-  SampleVolumeFieldOnSurface(field_S, bvh_S, mesh_R, bvh_R, X_SR, &surface_SR,
-                             &e_SR);
-  std::cout << "contact surface elements " << surface_SR->num_elements() << std::endl;
+  // std::cout << "__ Median Split __" << std::endl;
+  // std::cout << "Ellipsoid" << std::endl;
+  // const auto bvh_S = BoundingVolumeHierarchy<VolumeMesh<double>>(mesh_S, false);
+  // std::cout << "Sphere" << std::endl;
+  // const auto bvh_R =
+  //     BoundingVolumeHierarchy<SurfaceMesh<double>>(mesh_R, false);
+  // auto num_candidates = bvh_S.GetCollisionCandidates(bvh_R, X_SR).size();
+  // std::cout << "collision candidates " << num_candidates << std::endl;
+  // SampleVolumeFieldOnSurface(field_S, bvh_S, mesh_R, bvh_R, X_SR, &surface_SR,
+  //                            &e_SR);
+  // std::cout << "contact surface elements " << surface_SR->num_elements() << std::endl;
 
   std::cout << "__ Volume Heuristic __" << std::endl;
-  std::cout << "Ellipsoid" << std::endl;
-  const auto bvh_S_h =
-      BoundingVolumeHierarchy<VolumeMesh<double>>(mesh_S, true);
+  // std::cout << "Ellipsoid" << std::endl;
+  // const auto bvh_S_h =
+  //     BoundingVolumeHierarchy<VolumeMesh<double>>(mesh_S, true);
   std::cout << "Sphere" << std::endl;
   const auto bvh_R_h =
       BoundingVolumeHierarchy<SurfaceMesh<double>>(mesh_R, true);
-  num_candidates = bvh_S_h.GetCollisionCandidates(bvh_R_h, X_SR).size();
-  std::cout << "collision candidates " << num_candidates << std::endl;
-  SampleVolumeFieldOnSurface(field_S, bvh_S_h, mesh_R, bvh_R_h, X_SR,
-                             &surface_SR, &e_SR);
-  std::cout << "contact surface elements " << surface_SR->num_elements()
-            << std::endl;
+  std::cout << &bvh_R_h.root_node() << std::endl;
+  // auto num_candidates = bvh_S_h.GetCollisionCandidates(bvh_R_h, X_SR).size();
+  // std::cout << "collision candidates " << num_candidates << std::endl;
+  // SampleVolumeFieldOnSurface(field_S, bvh_S_h, mesh_R, bvh_R_h, X_SR,
+  //                            &surface_SR, &e_SR);
+  // std::cout << "contact surface elements " << surface_SR->num_elements()
+  //           << std::endl;
 }
 
 }  // namespace internal

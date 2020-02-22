@@ -12,6 +12,7 @@ drake_cc_binary(
         "//geometry/proximity:make_ellipsoid_mesh",
         "//geometry/proximity:make_sphere_mesh",
         "//geometry/proximity:mesh_intersection",
+        "//geometry/proximity:mesh_to_vtk",
         "//math",
         "@googlebenchmark//:benchmark",
     ],
