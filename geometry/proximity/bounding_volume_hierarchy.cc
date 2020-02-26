@@ -191,9 +191,20 @@ BoundingVolumeHierarchy<MeshType>::BuildBVTree(
             split < end; ++split) {
           auto a = ComputeBoundingVolume(mesh, start, split);
           auto b = ComputeBoundingVolume(mesh, split, end);
+          // Calculate overlapping volume.
+          double x = std::max(std::min(a.upper().x(), b.upper().x()) - std::max(a.lower().x(), b.lower().x()), 0.);
+          double y = std::max(std::min(a.upper().y(), b.upper().y()) -
+                                  std::max(a.lower().y(), b.lower().y()),
+                              0.);
+          double z = std::max(std::min(a.upper().z(), b.upper().z()) -
+                                  std::max(a.lower().z(), b.lower().z()),
+                              0.);
+          double overlap_volume = x * y * z;
+
           const double child_volume =
               ComputeBoundingVolume(mesh, start, split).CalcVolume() +
-              ComputeBoundingVolume(mesh, split, end).CalcVolume();
+              ComputeBoundingVolume(mesh, split, end).CalcVolume() + overlap_volume;
+
 
           if (axis == 0 && num_elements == 512 &&
               ((split - start) == 1 || (split - start) == 55 ||
@@ -209,7 +220,9 @@ BoundingVolumeHierarchy<MeshType>::BuildBVTree(
                       << " U: " << b.upper().transpose() << std::endl;
             std::cout << "A vol: " << a.CalcVolume()
                       << " + B vol: " << b.CalcVolume() << " = " << child_volume
-                      << ". Best:" << optimal_volume << std::endl;
+                      << ". Best:" << optimal_volume << " at "
+                       << (optimal_split - start) << std::endl;
+                      std::cout << "Overlap volume " << overlap_volume << std::endl;
 
 
             const auto& ele = mesh.element(split->first);
@@ -236,6 +249,7 @@ BoundingVolumeHierarchy<MeshType>::BuildBVTree(
             optimal_axis = axis;
             optimal_volume = child_volume;
             optimal_split = split;
+            if (num_elements == 512) std::cout << "Updating split to " << (optimal_split - start) << std::endl;
           }
         }
       }
