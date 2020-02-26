@@ -157,13 +157,14 @@ std::vector<Vector3<T>> ClipPolygonByHalfSpace(
   const int size = static_cast<int>(polygon_vertices_F.size());
 
   // TODO(SeanCurtis-TRI): If necessary, this can be made more efficient:
-  //  eliminating the modulus and eliminating the redundant "inside" calculation
-  //  on previous (by pre-determining previous and its "containedness" and then
-  //  propagating current -> previous in each loop. Probably a desirable
-  //  optimization as we need to make all of this work as cheap as possible.
+  //  eliminating the redundant "inside" calculation on previous (by
+  //  pre-determining previous and its "containedness" and then propagating
+  //  current -> previous in each loop. Probably a desirable optimization as we
+  //  need to make all of this work as cheap as possible.
+  int previous_i = size - 1;
   for (int i = 0; i < size; ++i) {
     const Vector3<T>& current = polygon_vertices_F[i];
-    const Vector3<T>& previous = polygon_vertices_F[(i - 1 + size) % size];
+    const Vector3<T>& previous = polygon_vertices_F[previous_i];
     const bool current_contained = !H_F.PointIsOutside(current);
     const bool previous_contained = !H_F.PointIsOutside(previous);
     if (current_contained) {
@@ -180,6 +181,7 @@ std::vector<Vector3<T>> ClipPolygonByHalfSpace(
       // polygon and is included *instead* of current.
       output_vertices_F.push_back(CalcIntersection(current, previous, H_F));
     }
+    previous_i = i;
   }
   return output_vertices_F;
 }
