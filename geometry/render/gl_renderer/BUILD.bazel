@@ -113,6 +113,17 @@ drake_cc_library_gl_ubuntu_only(
 )
 
 drake_cc_googletest_gl_ubuntu_only(
+    name = "load_mesh_test",
+    data = [
+        "//geometry:test_obj_files",
+    ],
+    deps = [
+        ":load_mesh",
+        "//common:find_resource",
+    ],
+)
+
+drake_cc_googletest_gl_ubuntu_only(
     name = "opengl_context_test",
     tags = [
         # GLX functions show up with bad reads, bad writes, possibly lost, and
@@ -133,6 +144,7 @@ drake_cc_googletest(
         "//conditions:default": [],
     }),
     data = [
+        "//geometry:test_obj_files",
         "//systems/sensors:test_models",
     ],
     tags = vtk_test_tags(),

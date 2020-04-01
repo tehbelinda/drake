@@ -19,6 +19,7 @@ struct OpenGlGeometry {
   GLuint vertex_array{kInvalid};
   GLuint vertex_buffer{kInvalid};
   GLuint index_buffer{kInvalid};
+  GLuint normal_buffer{kInvalid};
   int index_buffer_size{0};
 
   /** Reports true if `this` has been defined with meaningful values.  */

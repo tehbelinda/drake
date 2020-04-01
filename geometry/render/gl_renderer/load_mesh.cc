@@ -19,7 +19,8 @@ namespace internal {
 using std::string;
 using std::vector;
 
-std::pair<VertexBuffer, IndexBuffer> LoadMeshFromObj(const string& filename) {
+std::tuple<VertexBuffer, IndexBuffer, NormalBuffer> LoadMeshFromObj(
+    const string& filename) {
   tinyobj::attrib_t attrib;
   vector<tinyobj::shape_t> shapes;
   vector<tinyobj::material_t> materials;
@@ -77,7 +78,19 @@ std::pair<VertexBuffer, IndexBuffer> LoadMeshFromObj(const string& filename) {
       ++tri_index;
     }
   }
-  return std::make_pair(vertices, indices);
+
+  NormalBuffer normals{v_count, 3};
+  if (attrib.normals.size() > 0) {
+    // TODO(tehbelinda): Move this to the face loop to read in normals using
+    // face.normal_index. Will need to add duplicate vertices to keep sharp
+    // edges or calculate smooth normals across neighboring faces. Here is some
+    // example usage from tinyobj:
+    // https://github.com/tinyobjloader/tinyobjloader/blob/master/examples/viewer/viewer.cc
+    for (int v = 0; v < v_count; ++v) {
+      normals.block<1, 3>(v, 0) << 0.f, 0.f, 1.f;
+    }
+  }
+  return std::make_tuple(vertices, indices, normals);
 }
 
 }  // namespace internal

@@ -20,10 +20,12 @@ namespace render {
 namespace internal {
 namespace {
 
+using Eigen::AngleAxisd;
 using Eigen::Translation3d;
 using Eigen::Vector3d;
 using Eigen::Vector4d;
 using math::RigidTransformd;
+using math::RotationMatrixd;
 using std::make_unique;
 using std::unique_ptr;
 using std::unordered_map;
@@ -39,7 +41,7 @@ const int kHeight = 480;
 const double kZNear = 0.5;
 const double kZFar = 5.;
 const double kFovY = M_PI_4;
-const bool kShowWindow = false;
+const bool kShowWindow = true;
 
 // NOTE: The depth tolerance is this large mostly due to the combination of
 // several factors:
@@ -125,6 +127,7 @@ class RenderEngineGlTest : public ::testing::Test {
     ImageDepth32F* depth = depth_in ? depth_in : &depth_;
     EXPECT_NO_THROW(renderer->RenderDepthImage(camera, depth));
     EXPECT_NO_THROW(renderer->RenderLabelImage(camera, kShowWindow, label));
+    sleep(1);
   }
 
   // Confirms that all pixels in the member label image have the same value.
@@ -373,6 +376,26 @@ TEST_F(RenderEngineGlTest, BoxTest) {
   PerformCenterShapeTest(renderer_.get(), "Box test");
 }
 
+// Test for showing box colors with normals.
+TEST_F(RenderEngineGlTest, BoxNormalsTest) {
+  SetUp(X_WR_, true);
+
+  // Sets up a box.
+  Box box(1, 1, 1);
+  expected_label_ = RenderLabel(1000);
+  const GeometryId id = GeometryId::get_new_id();
+  renderer_->RegisterVisual(id, box, simple_material(),
+                            RigidTransformd::Identity(),
+                            true /* needs update */);
+  RigidTransformd X_WV{RotationMatrixd{AngleAxisd(M_PI / 4, Vector3d::UnitX()) *
+                                       AngleAxisd(M_PI / 6, Vector3d::UnitY())},
+                       Vector3d{0, 0, 0.5}};
+  renderer_->UpdatePoses(
+      unordered_map<GeometryId, RigidTransformd>{{id, X_WV}});
+
+  PerformCenterShapeTest(renderer_.get(), "Box color test");
+}
+
 // Performs the shape centered in the image with a sphere.
 TEST_F(RenderEngineGlTest, SphereTest) {
   SetUp(X_WR_, true);
@@ -411,7 +434,7 @@ TEST_F(RenderEngineGlTest, MeshTest) {
   auto filename = FindResourceOrThrow(
       "drake/systems/sensors/test/models/meshes/box.obj");
   Mesh mesh(filename);
-  expected_label_ = RenderLabel(3);
+  expected_label_ = RenderLabel(50);
   PerceptionProperties material = simple_material();
   // NOTE: Specifying a diffuse map with a known bad path, will force the box
   // to get the diffuse RGBA value (otherwise it would pick up the `box.png`
@@ -424,6 +447,28 @@ TEST_F(RenderEngineGlTest, MeshTest) {
       {id, RigidTransformd::Identity()}});
 
   PerformCenterShapeTest(renderer_.get(), "Mesh test");
+}
+
+// Test for showing mesh colors with normals.
+TEST_F(RenderEngineGlTest, MeshNormalsTest) {
+  SetUp(X_WR_, true);
+
+  auto filename =
+      FindResourceOrThrow("drake/geometry/test/quad_cube.obj");
+  Mesh mesh(filename);
+  expected_label_ = RenderLabel(100);
+  PerceptionProperties material = simple_material();
+  const GeometryId id = GeometryId::get_new_id();
+  renderer_->RegisterVisual(
+      id, mesh, material, RigidTransformd::Identity(),
+      true /* needs update */);
+  renderer_->UpdatePoses(unordered_map<GeometryId, RigidTransformd>{
+      {id,
+       RigidTransformd{RotationMatrixd{AngleAxisd(M_PI / 4, Vector3d::UnitX()) *
+                                       AngleAxisd(M_PI / 6, Vector3d::UnitY())},
+                       Vector3d{0, 0, 0}}}});
+
+  PerformCenterShapeTest(renderer_.get(), "Mesh normals test");
 }
 
 // Performs the shape centered in the image with a convex mesh (which happens to

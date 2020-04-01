@@ -78,18 +78,28 @@ void main() {
   const std::string kLabelVertexShader = R"__(
 #version 330
 layout(location = 0) in vec3 p_Model;
+layout(location = 1) in vec3 n_Model;
+out vec3 n_Camera;
+out vec3 light_dir_Camera;
 uniform mat4 model_view_matrix;
 uniform mat4 projection_matrix;
 void main() {
   vec4 p_Camera = model_view_matrix * vec4(p_Model, 1);
   gl_Position = projection_matrix * p_Camera;
+  n_Camera = (model_view_matrix * vec4(n_Model, 0)).xyz;
+  // Assume light in camera space is at (0, 0, 1), same default as VTK/Ospray.
+  vec3 light_pos_Camera = vec3(0, 0, 1);
+  light_dir_Camera = light_pos_Camera - p_Camera.xyz;
 })__";
   const std::string kLabelFragmentShader = R"__(
 #version 330
-out vec4 color;
+in vec3 n_Camera;
+in vec3 light_dir_Camera;
+layout (location = 0) out vec4 color;
 uniform vec4 diffuse;
 void main() {
-  color = diffuse;
+  float cos_theta = clamp(dot(normalize(n_Camera), normalize(light_dir_Camera)), 0, 1);
+  color = diffuse * cos_theta;
 })__";
   label_shader_program_->LoadFromSources(kLabelVertexShader,
                                          kLabelFragmentShader);
@@ -200,7 +210,8 @@ void RenderEngineGl::SetGlProjectionMatrix(
 }
 
 OpenGlGeometry RenderEngineGl::SetupVAO(const VertexBuffer& vertices,
-                                        const IndexBuffer& indices) {
+                                        const IndexBuffer& indices,
+                                        const NormalBuffer& normals) {
   OpenGlGeometry geometry;
   // Create the VAO.
   glCreateVertexArrays(1, &geometry.vertex_array);
@@ -221,6 +232,24 @@ OpenGlGeometry RenderEngineGl::SetupVAO(const VertexBuffer& vertices,
   glVertexArrayAttribBinding(geometry.vertex_array, kLocP_ModelAttrib,
                              kBindingIndex);
   glEnableVertexArrayAttrib(geometry.vertex_array, kLocP_ModelAttrib);
+
+  if (normals.size() > 0) {
+    // Normal Buffer Object.
+    glCreateBuffers(1, &geometry.normal_buffer);
+    glNamedBufferStorage(geometry.normal_buffer,
+                         normals.size() * sizeof(GLfloat), normals.data(), 0);
+    // Bind with the VAO.
+    const int kNormalBindingIndex = 1;
+    glVertexArrayVertexBuffer(geometry.vertex_array, kNormalBindingIndex,
+                              geometry.normal_buffer, 0, 3 * sizeof(GLfloat));
+    // Bind the attribute in vertex shader to the VAO at the same binding point.
+    const int kLocN_ModelAttrib = 1;  // n_Model's location in vertex shader.
+    glVertexArrayAttribFormat(geometry.vertex_array, kLocN_ModelAttrib, 3,
+                              GL_FLOAT, GL_FALSE, 0);
+    glVertexArrayAttribBinding(geometry.vertex_array, kLocN_ModelAttrib,
+                               kNormalBindingIndex);
+    glEnableVertexArrayAttrib(geometry.vertex_array, kLocN_ModelAttrib);
+  }
 
   // Index Buffer Object.
   glCreateBuffers(1, &geometry.index_buffer);
@@ -642,7 +671,13 @@ OpenGlGeometry RenderEngineGl::GetHalfSpace() {
 
     IndexBuffer indices{2, 3};
     indices << 0, 1, 2, 0, 2, 3;
-    half_space_ = SetupVAO(vertices, indices);
+
+    NormalBuffer normals{4, 3};
+    for (int i = 0; i < 4; ++i) {
+      normals.block<1, 3>(i, 0) << 0.f, 0.f, 1.f;
+    }
+
+    half_space_ = SetupVAO(vertices, indices, normals);
   }
 
   half_space_.throw_if_undefined(
@@ -656,20 +691,51 @@ OpenGlGeometry RenderEngineGl::GetBox() {
     //     7      6
     //     _____
     //    /|    /|
-    //  2/_|__3/ |
-    //  |  |   | |
-    //  | 4|___|_| 5
-    //  | /    | /
-    //  |/_____|/
+    //  3/_|__2/ |         y
+    //  |  |   | |         ^    z
+    //  | 4|___|_| 5       |  /
+    //  | /    | /         | /
+    //  |/_____|/          -----> x
     //  0      1
-    VertexBuffer vertices{8, 3};
-    vertices << -0.5f, -0.5f, -0.5f, 0.5f, -0.5f, -0.5f, 0.5f, 0.5f, -0.5f,
-        -0.5f, 0.5f, -0.5f, -0.5f, -0.5f, 0.5f, 0.5f, -0.5f, 0.5f, 0.5f, 0.5f,
-        0.5f, -0.5f, 0.5f, 0.5f;
+    VertexBuffer vertices{24, 3};
+    vertices <<
+        -0.5f, -0.5f, -0.5f,  // face 0 1 2 3, -z.
+        0.5f, -0.5f, -0.5f,
+        0.5f,  0.5f, -0.5f,
+        -0.5f,  0.5f, -0.5f,
+        0.5f, -0.5f, -0.5f,   // face 1 5 6 2, +x.
+        0.5f, -0.5f,  0.5f,
+        0.5f,  0.5f,  0.5f,
+        0.5f,  0.5f, -0.5f,
+        0.5f,  0.5f, -0.5f,   // face 2 6 7 3, +y.
+        0.5f,  0.5f,  0.5f,
+        -0.5f,  0.5f,  0.5f,
+        -0.5f,  0.5f, -0.5f,
+        -0.5f,  0.5f, -0.5f,  // face 3 7 4 0, -x.
+        -0.5f,  0.5f,  0.5f,
+        -0.5f, -0.5f,  0.5f,
+        -0.5f, -0.5f, -0.5f,
+        -0.5f,  0.5f,  0.5f,  // face 7 6 5 4, +z.
+        0.5f,  0.5f,  0.5f,
+        0.5f, -0.5f,  0.5f,
+        -0.5f, -0.5f,  0.5f,
+        0.5f, -0.5f, -0.5f,   // face 1 0 4 5, -y.
+        -0.5f, -0.5f, -0.5f,
+        -0.5f, -0.5f,  0.5f,
+        0.5f, -0.5f,  0.5f;
     IndexBuffer indices{12, 3};
-    indices << 0, 1, 2, 0, 2, 3, 1, 5, 6, 1, 6, 2, 2, 6, 7, 2, 7, 3, 3, 7, 4, 3,
-        4, 0, 7, 6, 5, 7, 5, 4, 1, 0, 4, 1, 4, 5;
-    box_ = SetupVAO(vertices, indices);
+    indices << 0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7, 8, 9, 10, 8, 10, 11, 12, 13,
+        14, 12, 14, 15, 16, 17, 18, 16, 18, 19, 20, 21, 22, 20, 22, 23;
+    NormalBuffer normals{24, 3};
+    normals <<
+        0.f, 0.f, -1.f, 0.f, 0.f, -1.f, 0.f, 0.f, -1.f, 0.f, 0.f, -1.f,  // -z.
+        1.f, 0.f, 0.f, 1.f, 0.f, 0.f, 1.f, 0.f, 0.f, 1.f, 0.f, 0.f,      // +x.
+        0.f, 1.f, 0.f, 0.f, 1.f, 0.f, 0.f, 1.f, 0.f, 0.f, 1.f, 0.f,      // +y.
+        -1.f, 0.f, 0.f, -1.f, 0.f, 0.f, -1.f, 0.f, 0.f, -1.f, 0.f, 0.f,  // -x.
+        0.f, 0.f, 1.f, 0.f, 0.f, 1.f, 0.f, 0.f, 1.f, 0.f, 0.f, 1.f,      // +z.
+        0.f, -1.f, 0.f, 0.f, -1.f, 0.f, 0.f, -1.f, 0.f, 0.f, -1.f, 0.f;  // -y.
+
+    box_ = SetupVAO(vertices, indices, normals);
   }
 
   box_.throw_if_undefined("Built-in box has some invalid objects");
@@ -680,8 +746,8 @@ OpenGlGeometry RenderEngineGl::GetBox() {
 OpenGlGeometry RenderEngineGl::GetMesh(const string& filename) {
   OpenGlGeometry mesh;
   if (meshes_->count(filename) == 0) {
-    auto [vertices, indices] = LoadMeshFromObj(filename);  // NOLINT
-    mesh = SetupVAO(vertices, indices);
+    auto [vertices, indices, normals] = LoadMeshFromObj(filename);  // NOLINT
+    mesh = SetupVAO(vertices, indices, normals);
     meshes_->insert({filename, mesh});
   } else {
     mesh = meshes_->at(filename);

@@ -143,7 +143,8 @@ class RenderEngineGl final : public RenderEngine {
 
   // Configure the vertex array object for a triangle mesh.
   OpenGlGeometry SetupVAO(const VertexBuffer& vertices,
-                          const IndexBuffer& indices);
+                          const IndexBuffer& indices,
+                          const NormalBuffer& normals = {});
 
   // Updates the display window with the last image rendered.
   // If `show_window` is true:
