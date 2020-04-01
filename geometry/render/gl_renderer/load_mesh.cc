@@ -44,15 +44,15 @@ std::tuple<VertexBuffer, IndexBuffer, NormalBuffer> LoadMeshFromObj(
   }
 
   DRAKE_DEMAND(shapes.size() > 0);
-  // Accumulate vertices.
+  // Set up buffer for vertices and normals.
   const vector<tinyobj::real_t>& verts = attrib.vertices;
   const int v_count = static_cast<int>(verts.size()) / 3;
   DRAKE_DEMAND(static_cast<int>(verts.size()) == v_count * 3);
-  VertexBuffer vertices{v_count, 3};
-  for (int v = 0; v < v_count; ++v) {
-    const int i = v * 3;
-    vertices.block<1, 3>(v, 0) << verts[i], verts[i + 1], verts[i + 2];
-  }
+  // We need to duplicate the vertices to account for different normals
+  // depending on which triangle this vertex is being used for.
+  const int duplicate_v_count = v_count * 3;
+  VertexBuffer vertices{duplicate_v_count, 3};
+  NormalBuffer normals{duplicate_v_count, 3};
 
   // Accumulate faces.
   int tri_count = 0;
@@ -67,29 +67,52 @@ std::tuple<VertexBuffer, IndexBuffer, NormalBuffer> LoadMeshFromObj(
   int tri_index = 0;
   for (const auto& shape : shapes) {
     const tinyobj::mesh_t& raw_mesh = shape.mesh;
-    for (int sub_index = 0;
-         sub_index < static_cast<int>(raw_mesh.num_face_vertices.size());
-         ++sub_index) {
-      const int i = sub_index * 3;
-      indices.block<1, 3>(tri_index, 0)
-          << static_cast<GLuint>(raw_mesh.indices[i].vertex_index),
-          static_cast<GLuint>(raw_mesh.indices[i + 1].vertex_index),
-          static_cast<GLuint>(raw_mesh.indices[i + 2].vertex_index);
+    for (int f = 0; f < static_cast<int>(raw_mesh.num_face_vertices.size());
+         ++f) {
+      const tinyobj::index_t f0 = raw_mesh.indices[f * 3];
+      const tinyobj::index_t f1 = raw_mesh.indices[f * 3 + 1];
+      const tinyobj::index_t f2 = raw_mesh.indices[f * 3 + 2];
+      const int v_f0 = f0.vertex_index;
+      const int v_f1 = f1.vertex_index;
+      const int v_f2 = f2.vertex_index;
+      indices.block<1, 3>(tri_index, 0) << tri_index * 3, tri_index * 3 + 1,
+          tri_index * 3 + 2;
+      vertices.block<1, 3>(tri_index * 3, 0) << attrib.vertices[v_f0 * 3],
+          attrib.vertices[v_f0 * 3 + 1], attrib.vertices[v_f0 * 3 + 2];
+      vertices.block<1, 3>(tri_index * 3 + 1, 0) << attrib.vertices[v_f1 * 3],
+          attrib.vertices[v_f1 * 3 + 1], attrib.vertices[v_f1 * 3 + 2];
+      vertices.block<1, 3>(tri_index * 3 + 2, 0) << attrib.vertices[v_f2 * 3],
+          attrib.vertices[v_f2 * 3 + 1], attrib.vertices[v_f2 * 3 + 2];
+      if (attrib.normals.size() > 0) {
+        const int n_f0 = f0.normal_index;
+        const int n_f1 = f1.normal_index;
+        const int n_f2 = f2.normal_index;
+        normals.block<1, 3>(tri_index * 3, 0) << attrib.normals[n_f0 * 3],
+            attrib.normals[n_f0 * 3 + 1], attrib.normals[n_f0 * 3 + 2];
+        normals.block<1, 3>(tri_index * 3 + 1, 0)
+            << attrib.normals[n_f1 * 3],
+            attrib.normals[n_f1 * 3 + 1], attrib.normals[n_f1 * 3 + 2];
+        normals.block<1, 3>(tri_index * 3 + 2, 0)
+            << attrib.normals[n_f2 * 3],
+            attrib.normals[n_f2 * 3 + 1], attrib.normals[n_f2 * 3 + 2];
+      }
+
       ++tri_index;
     }
   }
 
-  NormalBuffer normals{v_count, 3};
-  if (attrib.normals.size() > 0) {
-    // TODO(tehbelinda): Move this to the face loop to read in normals using
-    // face.normal_index. Will need to add duplicate vertices to keep sharp
-    // edges or calculate smooth normals across neighboring faces. Here is some
-    // example usage from tinyobj:
-    // https://github.com/tinyobjloader/tinyobjloader/blob/master/examples/viewer/viewer.cc
-    for (int v = 0; v < v_count; ++v) {
-      normals.block<1, 3>(v, 0) << 0.f, 0.f, 1.f;
-    }
-  }
+  // NormalBuffer normals{v_count, 3};
+  // if (attrib.normals.size() > 0) {
+  //   // TODO(tehbelinda): Move this to the face loop to read in normals using
+  //   // face.normal_index. Will need to add duplicate vertices to keep sharp
+  //   // edges or calculate smooth normals across neighboring faces. Here is some
+  //   // example usage from tinyobj:
+  //   // https://github.com/tinyobjloader/tinyobjloader/blob/master/examples/viewer/viewer.cc
+  //   // For now it's all just facing up.
+  //   for (int v = 0; v < v_count; ++v) {
+  //     normals.block<1, 3>(v, 0) << 0.f, 0.f, 1.f;
+  //   }
+  // }
   return std::make_tuple(vertices, indices, normals);
 }
 
